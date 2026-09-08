@@ -4,9 +4,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db import get_db
 from app.models.user import User
+from app.repositories.document_chunk_repository import DocumentChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentResponse, DocumentStatusResponse
+from app.services.chunking_service import ChunkingService
 from app.services.document_service import DocumentService
+from app.services.embedding_service import EmbeddingService
 from app.services.pdf_parser_service import PdfParserService
 from app.services.storage_service import StorageService
 
@@ -18,6 +21,9 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
         document_repository=DocumentRepository(db),
         storage_service=StorageService(),
         pdf_parser_service=PdfParserService(),
+        chunking_service=ChunkingService(),
+        embedding_service=EmbeddingService(),
+        document_chunk_repository=DocumentChunkRepository(db),
     )
 
 

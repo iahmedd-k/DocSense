@@ -8,6 +8,7 @@ email-validator==2.2.0
 SQLAlchemy==2.0.36
 psycopg[binary]==3.2.3
 alembic==1.14.0
+pgvector==0.3.6
 
 # Auth / Security
 bcrypt==3.2.0

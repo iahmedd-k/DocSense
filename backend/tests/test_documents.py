@@ -3,14 +3,35 @@ from pathlib import Path
 import pytest
 
 from app.core.config import settings
+from app.services.embedding_service import EmbeddingService
 from app.services.pdf_parser_service import (
     PdfPage,
     PdfParseError,
     ParsedPdf,
     PdfParserService,
 )
+from tests.conftest import TestingSessionLocal
 
 VALID_PDF = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF"
+
+
+class FakeEmbeddingProvider:
+    """Deterministic embedding provider for tests."""
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[float(i + 1) / len(texts or [1])] * settings.embedding_dimension
+                for i in range(len(texts))]
+
+
+def _mock_embedding(monkeypatch):
+    def fake_builder() -> FakeEmbeddingProvider:
+        return FakeEmbeddingProvider()
+
+    monkeypatch.setattr(
+        EmbeddingService,
+        "_build_default_provider",
+        staticmethod(fake_builder),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +42,7 @@ def _temp_dir(monkeypatch, tmp_path):
 def _mock_cloudinary_upload(monkeypatch, fail=False):
     monkeypatch.setattr(settings, "cloudinary_cloud_name", "test-cloud")
     _mock_pdf_parser(monkeypatch)
+    _mock_embedding(monkeypatch)
 
     def fake_upload(file, public_id=None, resource_type=None, **kwargs):
         if fail:
@@ -329,3 +351,67 @@ def test_temp_file_deleted_after_successful_processing(client, monkeypatch):
         / f"{Path(data['storage_key']).name}.pdf"
     )
     assert not temp_path.exists()
+
+
+def test_upload_persists_chunks_with_embeddings(client, monkeypatch):
+    from app.models.document_chunk import DocumentChunk
+    from app.repositories.document_chunk_repository import DocumentChunkRepository
+
+    _mock_cloudinary_upload(monkeypatch)
+    token = _register(client)
+
+    data = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert data["status"] == "completed"
+
+    db = TestingSessionLocal()
+    try:
+        repo = DocumentChunkRepository(db)
+        chunks = repo.list_by_document(data["id"])
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+        assert chunk.document_id == data["id"]
+        assert chunk.user_id == data["user_id"]
+        assert chunk.page_number == 1
+        assert chunk.page_numbers == [1]
+        assert chunk.content_type == "text"
+        assert chunk.content == "Resume text"
+        assert chunk.metadata_ == {"source": "pdf", "page": 1}
+        assert list(chunk.embedding) == [1.0] * settings.embedding_dimension
+    finally:
+        db.close()
+
+
+def test_embedding_failure_marks_document_failed(client, monkeypatch):
+    from app.services.embedding_service import EmbeddingError
+
+    _mock_cloudinary_upload(monkeypatch)
+
+    def failing_builder():
+        raise EmbeddingError("provider unavailable")
+
+    monkeypatch.setattr(
+        EmbeddingService,
+        "_build_default_provider",
+        staticmethod(failing_builder),
+    )
+    token = _register(client)
+
+    data = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+
+    assert data["status"] == "failed"
+
+    db = TestingSessionLocal()
+    try:
+        from app.repositories.document_chunk_repository import DocumentChunkRepository
+        assert DocumentChunkRepository(db).count_by_document(data["id"]) == 0
+    finally:
+        db.close()

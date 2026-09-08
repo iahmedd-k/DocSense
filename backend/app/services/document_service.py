@@ -6,8 +6,11 @@ from app.core.config import settings
 from app.core.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
 from app.core.logging import setup_logging
 from app.models.document import Document, DocumentStatus
+from app.repositories.document_chunk_repository import DocumentChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentStatusResponse
+from app.services.chunking_service import ChunkingService
+from app.services.embedding_service import EmbeddingError, EmbeddingService
 from app.services.pdf_parser_service import PdfParseError, PdfParserService
 from app.services.storage_service import StorageError, StorageService
 
@@ -23,10 +26,16 @@ class DocumentService:
         document_repository: DocumentRepository,
         storage_service: StorageService,
         pdf_parser_service: PdfParserService,
+        chunking_service: ChunkingService,
+        embedding_service: EmbeddingService,
+        document_chunk_repository: DocumentChunkRepository,
     ):
         self.document_repository = document_repository
         self.storage_service = storage_service
         self.pdf_parser_service = pdf_parser_service
+        self.chunking_service = chunking_service
+        self.embedding_service = embedding_service
+        self.document_chunk_repository = document_chunk_repository
 
     @staticmethod
     def _max_file_size_bytes() -> int:
@@ -69,6 +78,39 @@ class DocumentService:
         except OSError:
             logger.warning("Failed to delete temporary file %s", file_path)
 
+    def _generate_and_persist_chunks(
+        self, parsed: "ParsedPdf", document: Document
+    ) -> None:
+        """Chunk the parsed PDF, generate embeddings, and persist to PostgreSQL."""
+        chunks = self.chunking_service.chunk_document(parsed, document.id)
+
+        if not chunks:
+            logger.warning("No chunks generated for document %s", document.id)
+            return
+
+        texts = [c.content for c in chunks]
+        embeddings = self.embedding_service.generate_embeddings(texts)
+
+        chunk_records = []
+        for chunk, embedding in zip(chunks, embeddings):
+            chunk_records.append({
+                "document_id": chunk.document_id,
+                "user_id": document.user_id,
+                "page_number": chunk.page_number,
+                "page_numbers": chunk.page_numbers,
+                "content": chunk.content,
+                "content_type": chunk.content_type,
+                "metadata": chunk.metadata,
+                "embedding": embedding,
+            })
+
+        self.document_chunk_repository.create_many(chunk_records)
+        logger.info(
+            "Persisted %d chunks with embeddings for document %s",
+            len(chunk_records),
+            document.id,
+        )
+
     def _process(self, file_path: Path, document: Document) -> Document:
         document = self.document_repository.update_status(document, DocumentStatus.PROCESSING)
 
@@ -79,6 +121,21 @@ class DocumentService:
             return self.document_repository.update_status(document, DocumentStatus.FAILED)
         except Exception as exc:
             logger.exception("Unexpected error processing document %s", document.id)
+            return self.document_repository.update_status(document, DocumentStatus.FAILED)
+
+        try:
+            self._generate_and_persist_chunks(parsed, document)
+        except EmbeddingError as exc:
+            logger.warning(
+                "Embedding generation failed for document %s: %s",
+                document.id,
+                exc,
+            )
+            return self.document_repository.update_status(document, DocumentStatus.FAILED)
+        except Exception as exc:
+            logger.exception(
+                "Unexpected error persisting chunks for document %s", document.id
+            )
             return self.document_repository.update_status(document, DocumentStatus.FAILED)
 
         document = self.document_repository.update_status(document, DocumentStatus.COMPLETED)

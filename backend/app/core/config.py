@@ -34,6 +34,21 @@ class Settings(BaseSettings):
 
     local_temp_dir: str = "./tmp"
 
+    chunk_size: int = 500
+    chunk_overlap: int = 50
+
+    # Embeddings (Hugging Face Inference API)
+    embedding_provider: str = "huggingface"
+    embedding_model: str = "Snowflake/snowflake-arctic-embed-m"
+    embedding_dimension: int = 768
+    huggingface_token: str = ""
+    huggingface_inference_url: str = "https://router.huggingface.co/v1"
+
+    # Groq (LLM / query processing, used in later features)
+    groq_api_key: str = ""
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_chat_model: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
