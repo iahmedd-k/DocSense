@@ -8,9 +8,9 @@ from app.db.base import Base
 
 
 class DocumentStatus(str, enum.Enum):
-    PENDING = "pending"
-    PROCESSING = "processing"
     UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
     FAILED = "failed"
 
 
@@ -30,7 +30,7 @@ class Document(Base):
         nullable=False,
     )
 
-    filename: Mapped[str] = mapped_column(
+    original_filename: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
     )
@@ -39,6 +39,11 @@ class Document(Base):
         String(255),
         unique=True,
         index=True,
+        nullable=False,
+    )
+
+    storage_url: Mapped[str] = mapped_column(
+        String(512),
         nullable=False,
     )
 
@@ -54,7 +59,7 @@ class Document(Base):
 
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, native_enum=False, length=20),
-        default=DocumentStatus.PENDING,
+        default=DocumentStatus.UPLOADED,
         nullable=False,
     )
 

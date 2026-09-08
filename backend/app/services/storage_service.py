@@ -26,13 +26,14 @@ class StorageService:
         file_bytes: bytes,
         filename: str,
         user_id: int,
+        public_id: str | None = None,
     ) -> tuple[str, str]:
         """Upload a PDF to Cloudinary and return (public_id, secure_url)."""
 
         if not settings.cloudinary_cloud_name:
             raise StorageError("Cloudinary is not configured")
 
-        public_id = f"docsense/users/{user_id}/{uuid4().hex}"
+        public_id = public_id or f"docsense/users/{user_id}/{uuid4().hex}"
 
         try:
             result = uploader.upload(

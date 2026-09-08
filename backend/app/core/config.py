@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     cloudinary_api_secret: str = ""
     max_file_size_mb: int = 10
 
+    local_temp_dir: str = "./tmp"
+
 
 @lru_cache
 def get_settings() -> Settings:

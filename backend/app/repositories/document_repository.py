@@ -12,17 +12,19 @@ class DocumentRepository:
     def create(
         self,
         user_id: int,
-        filename: str,
+        original_filename: str,
         storage_key: str,
+        storage_url: str,
         mime_type: str,
         file_size: int,
-        status: DocumentStatus = DocumentStatus.PENDING,
+        status: DocumentStatus = DocumentStatus.UPLOADED,
     ) -> Document:
 
         document = Document(
             user_id=user_id,
-            filename=filename,
+            original_filename=original_filename,
             storage_key=storage_key,
+            storage_url=storage_url,
             mime_type=mime_type,
             file_size=file_size,
             status=status,
