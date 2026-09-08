@@ -14,21 +14,29 @@ from app.services.retrieval_service import (
     RetrievalService,
     VectorRetrievalService,
 )
+from app.services.rrf_service import RRFService
 
 router = APIRouter(prefix="/search", tags=["search"])
 
 
 def get_retrieval_service(db: Session = Depends(get_db)) -> RetrievalService:
     chunk_repository = DocumentChunkRepository(db)
+    vector_retrieval_service = VectorRetrievalService(
+        embedding_service=EmbeddingService(),
+        chunk_repository=chunk_repository,
+    )
+    lexical_retrieval_service = LexicalRetrievalService(
+        chunk_repository=chunk_repository,
+        language=settings.fulltext_search_language,
+    )
+    rrf_service = RRFService(
+        vector_retrieval_service=vector_retrieval_service,
+        lexical_retrieval_service=lexical_retrieval_service,
+    )
     return RetrievalService(
-        vector_retrieval_service=VectorRetrievalService(
-            embedding_service=EmbeddingService(),
-            chunk_repository=chunk_repository,
-        ),
-        lexical_retrieval_service=LexicalRetrievalService(
-            chunk_repository=chunk_repository,
-            language=settings.fulltext_search_language,
-        ),
+        vector_retrieval_service=vector_retrieval_service,
+        lexical_retrieval_service=lexical_retrieval_service,
+        rrf_service=rrf_service,
     )
 
 
@@ -41,7 +49,7 @@ def search(
     query: str = Query(..., min_length=1, max_length=500),
     method: RetrievalMethod = Query(
         default=RetrievalMethod.VECTOR,
-        description="Retrieval strategy: vector (semantic) or lexical (full-text)",
+        description="Retrieval strategy: vector (semantic), lexical (full-text), or hybrid (RRF)",
     ),
     top_k: int | None = Query(
         default=None,

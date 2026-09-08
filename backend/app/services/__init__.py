@@ -9,6 +9,7 @@ from app.services.retrieval_service import (
     RetrievalService,
     VectorRetrievalService,
 )
+from app.services.rrf_service import RRFService
 from app.services.storage_service import StorageService
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "PdfParserService",
     "RetrievalMethod",
     "RetrievalService",
+    "RRFService",
     "StorageService",
     "VectorRetrievalService",
 ]

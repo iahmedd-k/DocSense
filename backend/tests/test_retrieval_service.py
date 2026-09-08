@@ -9,6 +9,7 @@ from app.services.retrieval_service import (
     RetrievalService,
     VectorRetrievalService,
 )
+from app.services.rrf_service import RRFService
 
 
 class FakeEmbeddingService:
@@ -149,3 +150,51 @@ def test_top_k_is_clamped_to_maximum(retrieval_service):
 def test_unsupported_method_raises(retrieval_service):
     with pytest.raises(ValueError, match="Unsupported retrieval method"):
         retrieval_service.search(user_id=42, query="q", method="unknown")
+
+
+def test_hybrid_dispatches_to_rrf_service():
+    repo = FakeChunkRepository()
+
+    class FakeRRF:
+        def __init__(self):
+            self.calls = []
+
+        def search(self, user_id, query, top_k):
+            self.calls.append((user_id, query, top_k))
+            return [
+                ChunkResult(
+                    chunk_id=1,
+                    document_id=2,
+                    content="section content",
+                    page_number=4,
+                    page_numbers=[4],
+                    content_type="text",
+                    metadata={"source": "pdf"},
+                    score=0.5,
+                )
+            ]
+
+    fake_rrf = FakeRRF()
+    service = RetrievalService(
+        vector_retrieval_service=VectorRetrievalService(
+            embedding_service=FakeEmbeddingService(),
+            chunk_repository=repo,
+        ),
+        lexical_retrieval_service=LexicalRetrievalService(chunk_repository=repo),
+        rrf_service=fake_rrf,
+    )
+
+    response = service.search(
+        user_id=42, query="annual report", method=RetrievalMethod.HYBRID, top_k=7
+    )
+
+    assert fake_rrf.calls == [(42, "annual report", 7)]
+    assert len(response.results) == 1
+    assert response.results[0].score == pytest.approx(0.5)
+
+
+def test_hybrid_without_rrf_service_raises(retrieval_service):
+    with pytest.raises(ValueError, match="requires an RRF service"):
+        retrieval_service.search(
+            user_id=42, query="q", method=RetrievalMethod.HYBRID
+        )

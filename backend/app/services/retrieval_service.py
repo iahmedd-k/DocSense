@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
+from typing import TYPE_CHECKING
 
 from app.core.config import settings
 from app.repositories.document_chunk_repository import (
@@ -10,6 +11,9 @@ from app.repositories.document_chunk_repository import (
 )
 from app.schemas.retrieval import ChunkResult, SearchResponse
 from app.services.embedding_service import EmbeddingService
+
+if TYPE_CHECKING:
+    from app.services.rrf_service import RRFService
 
 logger = logging.getLogger(__name__)
 
@@ -115,23 +119,26 @@ class RetrievalMethod(str, enum.Enum):
 
     VECTOR = "vector"
     LEXICAL = "lexical"
+    HYBRID = "hybrid"
 
 
 class RetrievalService:
     """Orchestrates document retrieval for an authenticated user.
 
-    Dispatches to the concrete vector (semantic) or lexical (full-text)
-    retrieval service based on the requested ``method``. Hybrid fusion (RRF)
-    and reranking are intentionally not part of this feature.
+    Dispatches to the concrete vector (semantic), lexical (full-text), or
+    hybrid (RRF-fused) retrieval strategy based on the requested ``method``.
+    Reranking and query expansion are intentionally not part of this feature.
     """
 
     def __init__(
         self,
         vector_retrieval_service: VectorRetrievalService,
         lexical_retrieval_service: LexicalRetrievalService,
+        rrf_service: RRFService | None = None,
     ):
         self.vector_retrieval_service = vector_retrieval_service
         self.lexical_retrieval_service = lexical_retrieval_service
+        self.rrf_service = rrf_service
 
     @property
     def default_top_k(self) -> int:
@@ -155,6 +162,10 @@ class RetrievalService:
             results = self.lexical_retrieval_service.retrieve(user_id, query, top_k)
         elif method == RetrievalMethod.VECTOR:
             results = self.vector_retrieval_service.retrieve(user_id, query, top_k)
+        elif method == RetrievalMethod.HYBRID:
+            if self.rrf_service is None:
+                raise ValueError("Hybrid retrieval requires an RRF service")
+            results = self.rrf_service.search(user_id, query, top_k)
         else:
             raise ValueError(f"Unsupported retrieval method: {method}")
 

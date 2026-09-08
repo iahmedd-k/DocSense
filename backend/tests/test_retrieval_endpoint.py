@@ -96,6 +96,32 @@ def test_search_lexical_uses_lexical_method(client):
     assert stub.received["method"].value == "lexical"
 
 
+def test_search_hybrid_uses_hybrid_method(client):
+    stub = StubRetrievalService()
+    _override_service(app, stub)
+
+    token = client.post(
+        "/api/v1/auth/register",
+        json={
+            "first_name": "Hyb",
+            "last_name": "User",
+            "email": "hybrid@example.com",
+            "password": "password123",
+            "confirm_password": "password123",
+        },
+    ).json()["access_token"]
+
+    resp = client.get(
+        "/api/v1/search",
+        params={"query": "profit margin", "method": "hybrid"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 200
+    assert stub.received["method"].value == "hybrid"
+    assert stub.received["user_id"] == 1
+
+
 def test_search_rejects_empty_query(client):
     stub = StubRetrievalService()
     _override_service(app, stub)
@@ -137,7 +163,7 @@ def test_search_rejects_unknown_method(client):
 
     resp = client.get(
         "/api/v1/search",
-        params={"query": "hello", "method": "hybrid"},
+        params={"query": "hello", "method": "fuzzy"},
         headers={"Authorization": f"Bearer {token}"},
     )
 

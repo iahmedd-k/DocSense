@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     retrieval_max_top_k: int = 50
     fulltext_search_language: str = "english"
 
+    # Reciprocal Rank Fusion (FR-012)
+    rrf_k: int = 60
+
     # Embeddings (Hugging Face Inference API)
     embedding_provider: str = "huggingface"
     embedding_model: str = "Snowflake/snowflake-arctic-embed-m"
