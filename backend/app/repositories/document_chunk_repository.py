@@ -1,7 +1,24 @@
+from dataclasses import dataclass
+
+import sqlalchemy as sa
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.document_chunk import DocumentChunk
+
+
+@dataclass(frozen=True)
+class RetrievedChunk:
+    """A document chunk with a retrieval similarity/rank score."""
+
+    chunk_id: int
+    document_id: int
+    content: str
+    page_number: int
+    page_numbers: list[int]
+    content_type: str
+    metadata: dict
+    score: float
 
 
 class DocumentChunkRepository:
@@ -98,3 +115,79 @@ class DocumentChunkRepository:
             DocumentChunk.document_id == document_id
         )
         return len(list(self.db.scalars(statement)))
+
+    def search_by_embedding(
+        self,
+        user_id: int,
+        query_vector: list[float],
+        top_k: int,
+    ) -> list[RetrievedChunk]:
+        """Return the top-K chunks closest to ``query_vector`` for a user.
+
+        Uses pgvector cosine distance (``<=>``); results are ordered by
+        ascending distance (most similar first). The ``user_id`` filter
+        guarantees a user can only retrieve their own chunks.
+        """
+        distance = DocumentChunk.embedding.cosine_distance(query_vector)
+        statement = (
+            select(
+                DocumentChunk,
+                distance.label("distance"),
+            )
+            .where(DocumentChunk.user_id == user_id)
+            .order_by("distance")
+            .limit(top_k)
+        )
+
+        rows = self.db.execute(statement).all()
+        return [
+            self._to_retrieved_chunk(chunk, 1.0 - float(distance))
+            for chunk, distance in rows
+        ]
+
+    def search_by_text(
+        self,
+        user_id: int,
+        query: str,
+        top_k: int,
+        language: str = "english",
+    ) -> list[RetrievedChunk]:
+        """Return the top-K chunks matching ``query`` via PostgreSQL full-text search.
+
+        Uses ``websearch_to_tsquery`` with the configured language to parse a
+        user query, filters strictly to the given ``user_id`` (ownership), and
+        ranks results with ``ts_rank`` descending.
+        """
+        tsquery = sa.func.websearch_to_tsquery(language, query)
+        statement = (
+            select(
+                DocumentChunk,
+                sa.func.ts_rank(
+                    DocumentChunk.search_vector,
+                    tsquery,
+                ).label("rank"),
+            )
+            .where(DocumentChunk.user_id == user_id)
+            .where(DocumentChunk.search_vector.op("@@")(tsquery))
+            .order_by(sa.desc("rank"))
+            .limit(top_k)
+        )
+
+        rows = self.db.execute(statement).all()
+        return [
+            self._to_retrieved_chunk(chunk, float(rank))
+            for chunk, rank in rows
+        ]
+
+    @staticmethod
+    def _to_retrieved_chunk(chunk: DocumentChunk, score: float) -> RetrievedChunk:
+        return RetrievedChunk(
+            chunk_id=chunk.id,
+            document_id=chunk.document_id,
+            content=chunk.content,
+            page_number=chunk.page_number,
+            page_numbers=list(chunk.page_numbers or []),
+            content_type=chunk.content_type,
+            metadata=chunk.metadata_,
+            score=score,
+        )

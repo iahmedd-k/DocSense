@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     chunk_size: int = 500
     chunk_overlap: int = 50
 
+    # Retrieval
+    retrieval_default_top_k: int = 10
+    retrieval_max_top_k: int = 50
+    fulltext_search_language: str = "english"
+
     # Embeddings (Hugging Face Inference API)
     embedding_provider: str = "huggingface"
     embedding_model: str = "Snowflake/snowflake-arctic-embed-m"
