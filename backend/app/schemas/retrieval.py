@@ -34,6 +34,7 @@ class ChunkResult(BaseModel):
     content_type: str
     metadata: dict = Field(default_factory=dict)
     score: float
+    rerank_score: float | None = None
 
 
 class SearchResponse(BaseModel):

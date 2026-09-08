@@ -8,6 +8,7 @@ from app.models.user import User
 from app.repositories.document_chunk_repository import DocumentChunkRepository
 from app.schemas.retrieval import SearchResponse
 from app.services.embedding_service import EmbeddingService
+from app.services.reranking_service import RerankingService
 from app.services.retrieval_service import (
     LexicalRetrievalService,
     RetrievalMethod,
@@ -37,6 +38,7 @@ def get_retrieval_service(db: Session = Depends(get_db)) -> RetrievalService:
         vector_retrieval_service=vector_retrieval_service,
         lexical_retrieval_service=lexical_retrieval_service,
         rrf_service=rrf_service,
+        reranking_service=RerankingService(),
     )
 
 
@@ -57,6 +59,10 @@ def search(
         le=settings.retrieval_max_top_k,
         description="Number of results to return (defaults to server config)",
     ),
+    rerank: bool = Query(
+        default=False,
+        description="Re-score candidates with the cross-encoder reranker",
+    ),
     current_user: User = Depends(get_current_user),
     retrieval_service: RetrievalService = Depends(get_retrieval_service),
 ):
@@ -65,4 +71,5 @@ def search(
         query=query,
         method=method,
         top_k=top_k,
+        rerank=rerank,
     )

@@ -9,6 +9,7 @@ from app.services.retrieval_service import (
     RetrievalService,
     VectorRetrievalService,
 )
+from app.services.reranking_service import RerankingService
 from app.services.rrf_service import RRFService
 
 
@@ -197,4 +198,96 @@ def test_hybrid_without_rrf_service_raises(retrieval_service):
     with pytest.raises(ValueError, match="requires an RRF service"):
         retrieval_service.search(
             user_id=42, query="q", method=RetrievalMethod.HYBRID
+        )
+
+
+class FakeRerankingProvider:
+    def __init__(self, scores=None):
+        self.scores = scores
+        self.calls = []
+
+    def rerank(self, query, contents):
+        self.calls.append((query, contents))
+        if self.scores is not None:
+            return self.scores
+        return [float(len(contents) - i) for i in range(len(contents))]
+
+
+def test_rerank_true_pipes_through_reranking_service():
+    repo = FakeChunkRepository()
+
+    class CountingRRF:
+        def __init__(self):
+            self.requested = []
+
+        def search(self, user_id, query, top_k):
+            self.requested.append(top_k)
+            return [
+                ChunkResult(
+                    chunk_id=1,
+                    document_id=2,
+                    content=f"content-{i}",
+                    page_number=4,
+                    page_numbers=[4],
+                    content_type="text",
+                    metadata={"source": "pdf"},
+                    score=0.5,
+                )
+                for i in range(top_k)
+            ]
+
+    counting_rrf = CountingRRF()
+    service = RetrievalService(
+        vector_retrieval_service=VectorRetrievalService(
+            embedding_service=FakeEmbeddingService(),
+            chunk_repository=repo,
+        ),
+        lexical_retrieval_service=LexicalRetrievalService(chunk_repository=repo),
+        rrf_service=counting_rrf,
+        reranking_service=RerankingService(provider=FakeRerankingProvider()),
+    )
+
+    response = service.search(
+        user_id=42,
+        query="annual report",
+        method=RetrievalMethod.HYBRID,
+        top_k=7,
+        rerank=True,
+    )
+
+    # candidate_count = 7 * multiplier, capped at max_results
+    expected_candidates = min(
+        7 * settings.reranker_candidate_multiplier, settings.reranker_max_results
+    )
+    assert counting_rrf.requested == [expected_candidates]
+    assert len(response.results) == 7
+    assert all(r.rerank_score is not None for r in response.results)
+
+
+def test_rerank_false_does_not_touch_reranking():
+    repo = FakeChunkRepository()
+    service = RetrievalService(
+        vector_retrieval_service=VectorRetrievalService(
+            embedding_service=FakeEmbeddingService(),
+            chunk_repository=repo,
+        ),
+        lexical_retrieval_service=LexicalRetrievalService(chunk_repository=repo),
+    )
+
+    response = service.search(
+        user_id=42, query="finance", method=RetrievalMethod.VECTOR, top_k=5
+    )
+
+    assert len(response.results) == 1
+    assert response.results[0].rerank_score is None
+
+
+def test_rerank_without_reranking_service_raises(retrieval_service):
+    with pytest.raises(ValueError, match="requires a reranking service"):
+        retrieval_service.search(
+            user_id=42,
+            query="q",
+            method=RetrievalMethod.VECTOR,
+            top_k=5,
+            rerank=True,
         )

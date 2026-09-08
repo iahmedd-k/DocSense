@@ -45,6 +45,17 @@ class Settings(BaseSettings):
     # Reciprocal Rank Fusion (FR-012)
     rrf_k: int = 60
 
+    # Cross-Encoder Reranking (FR-014)
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_max_results: int = 20
+    reranker_candidate_multiplier: int = 2
+
+    # Evidence Sufficiency Grading (FR-015)
+    evidence_grading_top_k: int = 4
+
+    # Bounded Corrective Retrieval (FR-016)
+    corrective_retrieval_max_attempts: int = 2
+
     # Embeddings (Hugging Face Inference API)
     embedding_provider: str = "huggingface"
     embedding_model: str = "Snowflake/snowflake-arctic-embed-m"

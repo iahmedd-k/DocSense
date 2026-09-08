@@ -13,6 +13,7 @@ from app.schemas.retrieval import ChunkResult, SearchResponse
 from app.services.embedding_service import EmbeddingService
 
 if TYPE_CHECKING:
+    from app.services.reranking_service import RerankingService
     from app.services.rrf_service import RRFService
 
 logger = logging.getLogger(__name__)
@@ -127,7 +128,8 @@ class RetrievalService:
 
     Dispatches to the concrete vector (semantic), lexical (full-text), or
     hybrid (RRF-fused) retrieval strategy based on the requested ``method``.
-    Reranking and query expansion are intentionally not part of this feature.
+    Results can optionally be re-scored by a cross-encoder reranker. Query
+    expansion and evidence grading are intentionally not part of this feature.
     """
 
     def __init__(
@@ -135,10 +137,12 @@ class RetrievalService:
         vector_retrieval_service: VectorRetrievalService,
         lexical_retrieval_service: LexicalRetrievalService,
         rrf_service: RRFService | None = None,
+        reranking_service: RerankingService | None = None,
     ):
         self.vector_retrieval_service = vector_retrieval_service
         self.lexical_retrieval_service = lexical_retrieval_service
         self.rrf_service = rrf_service
+        self.reranking_service = reranking_service
 
     @property
     def default_top_k(self) -> int:
@@ -154,20 +158,20 @@ class RetrievalService:
         query: str,
         method: str,
         top_k: int | None = None,
+        rerank: bool = False,
     ) -> SearchResponse:
-        """Run a single-method retrieval and shape the response."""
+        """Run a single-method retrieval and shape the response.
+
+        When ``rerank`` is enabled, additional candidates are fetched and
+        re-scored by the cross-encoder reranker before the final top-K is
+        returned.
+        """
         top_k = self._resolve_top_k(top_k)
 
-        if method == RetrievalMethod.LEXICAL:
-            results = self.lexical_retrieval_service.retrieve(user_id, query, top_k)
-        elif method == RetrievalMethod.VECTOR:
-            results = self.vector_retrieval_service.retrieve(user_id, query, top_k)
-        elif method == RetrievalMethod.HYBRID:
-            if self.rrf_service is None:
-                raise ValueError("Hybrid retrieval requires an RRF service")
-            results = self.rrf_service.search(user_id, query, top_k)
+        if rerank:
+            results = self._search_with_reranking(user_id, query, method, top_k)
         else:
-            raise ValueError(f"Unsupported retrieval method: {method}")
+            results = self._retrieve(user_id, query, method, top_k)
 
         logger.info(
             "Retrieved %d results for user %s using method=%s",
@@ -176,6 +180,43 @@ class RetrievalService:
             method,
         )
         return SearchResponse(query=query, results=results)
+
+    def _retrieve(
+        self,
+        user_id: int,
+        query: str,
+        method: str,
+        top_k: int,
+    ) -> list[ChunkResult]:
+        if method == RetrievalMethod.LEXICAL:
+            return self.lexical_retrieval_service.retrieve(user_id, query, top_k)
+        elif method == RetrievalMethod.VECTOR:
+            return self.vector_retrieval_service.retrieve(user_id, query, top_k)
+        elif method == RetrievalMethod.HYBRID:
+            if self.rrf_service is None:
+                raise ValueError("Hybrid retrieval requires an RRF service")
+            return self.rrf_service.search(user_id, query, top_k)
+        else:
+            raise ValueError(f"Unsupported retrieval method: {method}")
+
+    def _search_with_reranking(
+        self,
+        user_id: int,
+        query: str,
+        method: str,
+        top_k: int,
+    ) -> list[ChunkResult]:
+        if self.reranking_service is None:
+            raise ValueError("Reranking requires a reranking service")
+
+        candidate_count = self._candidate_count_for_rerank(top_k)
+        candidates = self._retrieve(user_id, query, method, candidate_count)
+
+        return self.reranking_service.rerank(query, candidates, top_n=top_k)
+
+    def _candidate_count_for_rerank(self, top_k: int) -> int:
+        count = top_k * settings.reranker_candidate_multiplier
+        return max(1, min(count, settings.reranker_max_results))
 
     def _resolve_top_k(self, top_k: int | None) -> int:
         if top_k is None:
