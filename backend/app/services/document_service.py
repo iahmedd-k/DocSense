@@ -225,3 +225,32 @@ class DocumentService:
 
     def list_documents(self, user_id: int) -> list[Document]:
         return self.document_repository.list_by_user(user_id)
+
+    def delete_document(self, user_id: int, document_id: int) -> Document:
+        """Delete a document owned by ``user_id`` and its associated data.
+
+        Deletes the stored file, all associated chunks, and finally the
+        document record. Ownership is enforced at the repository layer so a
+        user cannot delete another user's document.
+        """
+        document = self.get_document(user_id, document_id)
+
+        self.document_chunk_repository.delete_by_document(document.id)
+
+        storage_key = document.storage_key
+        if storage_key:
+            try:
+                self.storage_service.delete_file(storage_key)
+            except StorageError:
+                logger.warning(
+                    "Failed to delete stored file for document %s", document.id
+                )
+
+        deleted = self.document_repository.delete_by_id_and_user(
+            document.id,
+            user_id,
+        )
+        if deleted is None:
+            raise NotFoundError("Document not found")
+
+        return deleted

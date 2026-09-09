@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -83,3 +83,17 @@ def get_document(
     document_service: DocumentService = Depends(get_document_service),
 ):
     return document_service.get_document(current_user.id, document_id)
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a document and its associated stored data",
+)
+def delete_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    document_service: DocumentService = Depends(get_document_service),
+):
+    document_service.delete_document(current_user.id, document_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

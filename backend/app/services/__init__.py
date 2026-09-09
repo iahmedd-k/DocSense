@@ -1,4 +1,5 @@
 from app.services.auth_service import AuthService
+from app.services.chat_service import ChatService
 from app.services.chunking_service import ChunkingService
 from app.services.corrective_retrieval_service import CorrectiveRetrievalService
 from app.services.document_service import DocumentService
@@ -26,10 +27,12 @@ from app.services.retrieval_service import (
 )
 from app.services.rrf_service import RRFService
 from app.services.storage_service import StorageService
+from app.services.usage_service import UsageService
 
 __all__ = [
     "AuthService",
     "ChatProvider",
+    "ChatService",
     "ChunkingService",
     "CorrectiveRetrievalService",
     "CrossEncoderProvider",
@@ -49,5 +52,6 @@ __all__ = [
     "RRFService",
     "SentenceTransformerCrossEncoderProvider",
     "StorageService",
+    "UsageService",
     "VectorRetrievalService",
 ]

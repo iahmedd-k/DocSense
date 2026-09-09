@@ -1,4 +1,18 @@
 from app.schemas.auth import LoginRequest, RegisterRequest
+from app.schemas.chat import (
+    AbstentionRequest,
+    AbstentionResponse,
+    CitationMismatch,
+    CitationRequest,
+    CitationResponse,
+    SourceCitation,
+    StreamChatRequest,
+    VerificationRequest,
+    VerificationResponse,
+    WebSearchRequest,
+    WebSearchResponse,
+    WebSearchResultItem,
+)
 from app.schemas.document import DocumentResponse, DocumentStatusResponse
 from app.schemas.evidence import (
     CorrectiveRetrievalResponse,
@@ -7,20 +21,34 @@ from app.schemas.evidence import (
 )
 from app.schemas.retrieval import ChunkResult, SearchQuery, SearchResponse
 from app.schemas.token import TokenResponse
+from app.schemas.usage import UsageResponse
 from app.schemas.user import RoleUpdateRequest, UserResponse
 
 __all__ = [
+    "AbstentionRequest",
+    "AbstentionResponse",
     "ChunkResult",
+    "CitationMismatch",
+    "CitationRequest",
+    "CitationResponse",
     "CorrectiveRetrievalResponse",
     "DocumentResponse",
     "DocumentStatusResponse",
     "EvidenceVerdict",
     "LoginRequest",
-    "RegisterRequest",
     "RefinedQuery",
+    "RegisterRequest",
     "RoleUpdateRequest",
     "SearchQuery",
     "SearchResponse",
+    "SourceCitation",
+    "StreamChatRequest",
     "TokenResponse",
+    "UsageResponse",
     "UserResponse",
+    "VerificationRequest",
+    "VerificationResponse",
+    "WebSearchRequest",
+    "WebSearchResponse",
+    "WebSearchResultItem",
 ]

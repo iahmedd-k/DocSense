@@ -72,3 +72,18 @@ class DocumentRepository:
         self.db.refresh(document)
 
         return document
+
+    def delete_by_id_and_user(
+        self,
+        document_id: int,
+        user_id: int,
+    ) -> Document | None:
+        """Delete a document owned by the user and return it, or None if not found."""
+        document = self.get_by_id_and_user(document_id, user_id)
+        if document is None:
+            return None
+
+        self.db.delete(document)
+        self.db.commit()
+
+        return document

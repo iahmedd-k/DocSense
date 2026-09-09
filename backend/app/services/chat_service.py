@@ -1,0 +1,513 @@
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import AsyncGenerator
+
+import httpx
+
+from app.core.config import settings
+from app.core.exceptions import BadRequestError, ServiceUnavailableError
+from app.schemas.chat import (
+    AbstentionRequest,
+    AbstentionResponse,
+    CitationMismatch,
+    CitationRequest,
+    CitationResponse,
+    SourceCitation,
+    VerificationRequest,
+    VerificationResponse,
+    WebSearchResponse,
+    WebSearchResultItem,
+)
+from app.schemas.evidence import EvidenceVerdict
+from app.schemas.retrieval import ChunkResult
+from app.services.llm_service import LLMError, LLMService
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# FR-018 — Citation Generation
+# ---------------------------------------------------------------------------
+
+CITATION_SYSTEM_PROMPT = """\
+You are a citation generator for a document question-answering system. Given a \
+user query, a generated answer, and evidence chunks from source documents, \
+produce precise page/source citations.
+
+For each claim or statement in the answer that is supported by evidence, \
+create a citation linking it to the specific document and page.
+
+Respond with STRICT JSON only and no extra text, using this exact shape:
+{
+  "citations": [
+    {
+      "text": "<exact text span from the answer>",
+      "document_id": <int>,
+      "page_number": <int>,
+      "chunk_id": <int or null>,
+      "confidence": <float 0.0 to 1.0>
+    }
+  ]
+}
+
+Rules:
+- Each citation must reference a document_id and page_number that exist in the evidence.
+- The "text" field must be an exact substring of the answer.
+- Include chunk_id when the evidence chunk id is available.
+- confidence reflects how strongly the evidence supports that specific claim.
+- Only cite claims that are actually supported by the evidence.
+- Do NOT fabricate citations for claims not present in the evidence.
+"""
+
+# ---------------------------------------------------------------------------
+# FR-019 — Verification
+# ---------------------------------------------------------------------------
+
+VERIFICATION_SYSTEM_PROMPT = """\
+You are an answer and citation verification system for a document \
+question-answering pipeline. Given a user query, a generated answer, \
+evidence chunks, and their citation mappings, verify:
+
+1. Whether the answer is fully supported by the evidence.
+2. Whether each citation correctly references its claimed source.
+
+Respond with STRICT JSON only and no extra text, using this exact shape:
+{
+  "supported": <true or false>,
+  "citations_correct": <true or false>,
+  "issues": [
+    {
+      "citation_text": "<the problematic citation text>",
+      "claimed_document_id": <int>,
+      "claimed_page": <int>,
+      "issue": "<description of the mismatch>"
+    }
+  ],
+  "explanation": "<brief explanation of the verification outcome>"
+}
+
+Rules:
+- "supported" is false when the answer contains claims not backed by evidence.
+- "citations_correct" is false when any citation points to the wrong document or page.
+- "issues" lists only the problematic citations; empty list when all are correct.
+- Be strict: even minor mismatches should be flagged.
+"""
+
+# ---------------------------------------------------------------------------
+# FR-020 — Abstention
+# ---------------------------------------------------------------------------
+
+ABSTENTION_SYSTEM_PROMPT = """\
+You are an abstention decision system for a document question-answering \
+pipeline. Given a user query, retrieved evidence, an evidence sufficiency \
+verdict, and an optional draft answer, decide whether the system should \
+abstain from providing an answer.
+
+Abstain when:
+- The evidence is clearly insufficient to answer the query.
+- The answer cannot be reliably supported by the available evidence.
+- The confidence score is too low to be trustworthy.
+
+Respond with STRICT JSON only and no extra text, using this exact shape:
+{
+  "abstain": <true or false>,
+  "reason": "<clear reason for the decision>",
+  "suggestion": "<optional suggestion for the user, e.g. rephrase>"
+}
+
+Rules:
+- When abstaining, provide a clear, user-friendly reason.
+- When not abstaining, explain why the evidence is sufficient.
+- suggestion should help the user if they are being asked to rephrase.
+"""
+
+# ---------------------------------------------------------------------------
+# Web Search Provider (FR-023)
+# ---------------------------------------------------------------------------
+
+_DDG_URL = "https://html.duckduckgo.com/html/"
+
+
+class WebSearchProvider:
+    """Minimal DuckDuckGo web search provider using httpx."""
+
+    def __init__(self) -> None:
+        self._client = httpx.Client(
+            timeout=15.0,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+            },
+            follow_redirects=True,
+        )
+
+    def search(
+        self,
+        query: str,
+        max_results: int = 5,
+    ) -> list[WebSearchResultItem]:
+        """Perform a web search and return parsed results."""
+        try:
+            response = self._client.post(_DDG_URL, data={"q": query})
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ServiceUnavailableError(
+                f"Web search returned status {exc.response.status_code}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ServiceUnavailableError(
+                f"Web search request failed: {exc}"
+            ) from exc
+
+        return self._parse_results(response.text, max_results)
+
+    def _parse_results(
+        self,
+        html: str,
+        max_results: int,
+    ) -> list[WebSearchResultItem]:
+        """Extract results from the DuckDuckGo HTML page."""
+        results: list[WebSearchResultItem] = []
+
+        result_blocks = re.findall(
+            r'<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?'
+            r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
+            html,
+            re.DOTALL,
+        )
+
+        for rank, (url, title, snippet) in enumerate(result_blocks, start=1):
+            if rank > max_results:
+                break
+            title_clean = re.sub(r"<.*?>", "", title).strip()
+            snippet_clean = re.sub(r"<.*?>", "", snippet).strip()
+            url_clean = self._clean_ddg_url(url)
+            if title_clean and url_clean:
+                results.append(
+                    WebSearchResultItem(
+                        title=title_clean,
+                        url=url_clean,
+                        snippet=snippet_clean,
+                        rank=rank,
+                    )
+                )
+
+        return results
+
+    @staticmethod
+    def _clean_ddg_url(url: str) -> str:
+        """Extract the actual URL from DuckDuckGo's redirect wrapper."""
+        match = re.search(r"uddg=([^&]+)", url)
+        if match:
+            from urllib.parse import unquote
+
+            return unquote(match.group(1))
+        return url.strip()
+
+
+class WebSearchError(Exception):
+    """Raised when a web search operation fails."""
+
+
+# ---------------------------------------------------------------------------
+# ChatService
+# ---------------------------------------------------------------------------
+
+
+class ChatService:
+    """Business logic for chat-related features (FR-018 through FR-023).
+
+    Keeps all LLM orchestration, prompt construction, and web search logic
+    out of the route handlers. The service is stateless and wired via
+    dependency injection.
+    """
+
+    def __init__(
+        self,
+        llm_service: LLMService | None = None,
+    ):
+        self._llm_service = llm_service
+
+    @property
+    def llm_service(self) -> LLMService:
+        if self._llm_service is None:
+            self._llm_service = LLMService()
+        return self._llm_service
+
+    # ------------------------------------------------------------------
+    # FR-018 — Citations
+    # ------------------------------------------------------------------
+
+    def generate_citations(self, request: CitationRequest) -> CitationResponse:
+        """Generate page/source citations for the grounded answer."""
+        evidence_summary = self._format_evidence(request.evidence)
+        user_prompt = (
+            f"User query: {request.query}\n\n"
+            f"Generated answer:\n{request.answer}\n\n"
+            f"Evidence chunks:\n{evidence_summary}"
+        )
+
+        try:
+            data = self.llm_service.complete_json(
+                CITATION_SYSTEM_PROMPT,
+                user_prompt,
+            )
+        except LLMError as exc:
+            raise ServiceUnavailableError(
+                f"Citation generation failed: {exc}"
+            ) from exc
+
+        citations = self._parse_citations(data, request.evidence)
+
+        return CitationResponse(
+            query=request.query,
+            answer=request.answer,
+            citations=citations,
+        )
+
+    @staticmethod
+    def _parse_citations(
+        data: dict,
+        evidence: list[ChunkResult],
+    ) -> list[SourceCitation]:
+        raw_citations = data.get("citations")
+        if not isinstance(raw_citations, list):
+            return []
+
+        valid_ids = {c.chunk_id for c in evidence}
+        valid_doc_pages = {
+            (c.document_id, c.page_number) for c in evidence
+        }
+
+        citations: list[SourceCitation] = []
+        for item in raw_citations:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("text", "")).strip()
+            doc_id = item.get("document_id")
+            page = item.get("page_number")
+            chunk_id = item.get("chunk_id")
+            confidence = item.get("confidence")
+
+            if not text or doc_id is None or page is None:
+                continue
+
+            citations.append(
+                SourceCitation(
+                    text=text,
+                    document_id=int(doc_id),
+                    page_number=int(page),
+                    chunk_id=int(chunk_id) if chunk_id is not None else None,
+                    confidence=(
+                        float(confidence) if confidence is not None else None
+                    ),
+                )
+            )
+
+        return citations
+
+    # ------------------------------------------------------------------
+    # FR-019 — Verification
+    # ------------------------------------------------------------------
+
+    def verify_answer(self, request: VerificationRequest) -> VerificationResponse:
+        """Verify that the answer is supported by evidence and citations."""
+        evidence_summary = self._format_evidence(request.evidence)
+        user_prompt = (
+            f"User query: {request.query}\n\n"
+            f"Generated answer:\n{request.answer}\n\n"
+            f"Evidence chunks:\n{evidence_summary}"
+        )
+
+        try:
+            data = self.llm_service.complete_json(
+                VERIFICATION_SYSTEM_PROMPT,
+                user_prompt,
+            )
+        except LLMError as exc:
+            raise ServiceUnavailableError(
+                f"Answer verification failed: {exc}"
+            ) from exc
+
+        return self._parse_verification(data)
+
+    @staticmethod
+    def _parse_verification(data: dict) -> VerificationResponse:
+        supported = bool(data.get("supported", False))
+        citations_correct = bool(data.get("citations_correct", True))
+        explanation = str(data.get("explanation", ""))
+
+        raw_issues = data.get("issues") or []
+        issues: list[CitationMismatch] = []
+        if isinstance(raw_issues, list):
+            for item in raw_issues:
+                if not isinstance(item, dict):
+                    continue
+                issues.append(
+                    CitationMismatch(
+                        citation_text=str(item.get("citation_text", "")),
+                        claimed_document_id=int(
+                            item.get("claimed_document_id", 0)
+                        ),
+                        claimed_page=int(item.get("claimed_page", 0)),
+                        issue=str(item.get("issue", "")),
+                    )
+                )
+
+        return VerificationResponse(
+            supported=supported,
+            citations_correct=citations_correct,
+            issues=issues,
+            explanation=explanation,
+        )
+
+    # ------------------------------------------------------------------
+    # FR-020 — Abstention
+    # ------------------------------------------------------------------
+
+    def decide_abstention(self, request: AbstentionRequest) -> AbstentionResponse:
+        """Decide whether to abstain from answering based on evidence."""
+        evidence_summary = self._format_evidence(request.evidence)
+        verdict_text = (
+            f"sufficient={request.verdict.sufficient}, "
+            f"confidence={request.verdict.confidence_score}, "
+            f"reason={request.verdict.reason}"
+        )
+
+        parts = [
+            f"User query: {request.query}",
+            f"Evidence verdict: {verdict_text}",
+        ]
+        if request.verdict.missing_information:
+            parts.append(
+                f"Missing information: {', '.join(request.verdict.missing_information)}"
+            )
+        if request.evidence:
+            parts.append(f"Evidence chunks:\n{evidence_summary}")
+        if request.answer:
+            parts.append(f"Draft answer:\n{request.answer}")
+
+        user_prompt = "\n\n".join(parts)
+
+        try:
+            data = self.llm_service.complete_json(
+                ABSTENTION_SYSTEM_PROMPT,
+                user_prompt,
+            )
+        except LLMError as exc:
+            raise ServiceUnavailableError(
+                f"Abstention decision failed: {exc}"
+            ) from exc
+
+        return self._parse_abstention(data)
+
+    @staticmethod
+    def _parse_abstention(data: dict) -> AbstentionResponse:
+        abstain = bool(data.get("abstain", True))
+        reason = str(data.get("reason", "Insufficient evidence to provide an answer."))
+        suggestion = str(data.get("suggestion", ""))
+
+        return AbstentionResponse(
+            abstain=abstain,
+            reason=reason,
+            suggestion=suggestion,
+        )
+
+    # ------------------------------------------------------------------
+    # FR-021 — Streaming
+    # ------------------------------------------------------------------
+
+    async def stream_answer(
+        self,
+        query: str,
+        evidence: list[ChunkResult],
+        temperature: float = 0.0,
+    ) -> AsyncGenerator[str, None]:
+        """Yield SSE-formatted streaming chunks from the LLM."""
+        system_prompt = self._build_grounded_system_prompt()
+        evidence_summary = self._format_evidence(evidence)
+        user_prompt = (
+            f"User query: {query}\n\n"
+            f"Evidence chunks:\n{evidence_summary}"
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        provider = self.llm_service.provider
+
+        if not hasattr(provider, "chat_stream"):
+            # Fallback: non-streaming provider — yield the full response
+            try:
+                content = provider.chat(messages, temperature=temperature)
+            except Exception as exc:
+                yield f"data: {json.dumps({'event': 'error', 'data': str(exc)})}\n\n"
+                return
+            yield f"data: {json.dumps({'event': 'chunk', 'data': content})}\n\n"
+            yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+            return
+
+        try:
+            async for chunk in provider.chat_stream(messages, temperature=temperature):
+                yield f"data: {json.dumps({'event': 'chunk', 'data': chunk})}\n\n"
+        except Exception as exc:
+            yield f"data: {json.dumps({'event': 'error', 'data': str(exc)})}\n\n"
+            return
+
+        yield f"data: {json.dumps({'event': 'done', 'data': ''})}\n\n"
+
+    @staticmethod
+    def _build_grounded_system_prompt() -> str:
+        return (
+            "You are a helpful document question-answering assistant. "
+            "Answer the user's query using ONLY the provided evidence chunks. "
+            "If the evidence does not contain enough information, say so "
+            "clearly. Always ground your response in the evidence."
+        )
+
+    # ------------------------------------------------------------------
+    # FR-023 — Web Search
+    # ---------------------------------------------------------------------------
+
+    def web_search(
+        self,
+        request: WebSearchRequest,
+    ) -> WebSearchResponse:
+        """Perform optional external web search."""
+        provider = self._build_web_search_provider()
+        results = provider.search(
+            query=request.query,
+            max_results=request.max_results,
+        )
+
+        return WebSearchResponse(
+            query=request.query,
+            results=results,
+            provider="duckduckgo",
+        )
+
+    @staticmethod
+    def _build_web_search_provider() -> WebSearchProvider:
+        return WebSearchProvider()
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _format_evidence(chunks: list[ChunkResult]) -> str:
+        lines: list[str] = []
+        for i, chunk in enumerate(chunks, start=1):
+            meta_parts = [f"document_id={chunk.document_id}", f"page={chunk.page_number}"]
+            if chunk.page_numbers:
+                meta_parts.append(f"pages={chunk.page_numbers}")
+            meta = ", ".join(meta_parts)
+            lines.append(f"[{i}] ({meta}) {chunk.content}")
+        return "\n".join(lines)
