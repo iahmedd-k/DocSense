@@ -28,7 +28,7 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
 
 
 @router.post(
-    "/upload",
+    "",
     response_model=DocumentResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Upload a PDF document",

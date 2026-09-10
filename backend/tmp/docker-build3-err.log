@@ -1,0 +1,38 @@
+failed to solve: failed to extract layer sha256:af423fa5c5e31cc365868d131a439e382f6ae730c4d0f08810fc7feebe36c45d: failed to Lchown "/var/lib/desktop-containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots/80/fs/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib/libcudnn_engines_tensor_ir.so.9" for UID 0, GID 0: lchown /var/lib/desktop-containerd/daemon/io.containerd.snapshotter.v1.overlayfs/snapshots/80/fs/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib/libcudnn_engines_tensor_ir.so.9: no such file or directory
+
+11200 v0.28.0-desktop.1 C:\Program Files\Docker\cli-plugins\docker-buildx.exe bake --file - --progress rawjson --metadata-file C:\Users\Dell\AppData\Local\Temp\compose-build-metadataFile-277669268.json --allow fs.read=D:\Ahmed Dev\Projects\docsense\backend
+
+google.golang.org/grpc.(*ClientConn).Invoke
+
+	google.golang.org/grpc@v1.72.2/call.go:35
+
+github.com/moby/buildkit/api/services/control.(*controlClient).Solve
+
+	github.com/moby/buildkit@v0.24.0/api/services/control/control_grpc.pb.go:88
+
+github.com/moby/buildkit/client.(*Client).solve.func2
+
+	github.com/moby/buildkit@v0.24.0/client/solve.go:278
+
+golang.org/x/sync/errgroup.(*Group).Go.func1
+
+	golang.org/x/sync@v0.16.0/errgroup/errgroup.go:93
+
+runtime.goexit
+
+	runtime/asm_amd64.s:1700
+
+
+
+11200 v0.28.0-desktop.1 C:\Program Files\Docker\cli-plugins\docker-buildx.exe bake --file - --progress rawjson --metadata-file C:\Users\Dell\AppData\Local\Temp\compose-build-metadataFile-277669268.json --allow fs.read=D:\Ahmed Dev\Projects\docsense\backend
+
+github.com/moby/buildkit/client.(*Client).solve.func2
+
+	github.com/moby/buildkit@v0.24.0/client/solve.go:295
+
+golang.org/x/sync/errgroup.(*Group).Go.func1
+
+	golang.org/x/sync@v0.16.0/errgroup/errgroup.go:93
+
+
+

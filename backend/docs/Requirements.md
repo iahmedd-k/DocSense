@@ -45,6 +45,7 @@ This document defines the functional and non-functional requirements for the Doc
 │  FR-024      │  Streaming Response                                 │
 │  FR-025      │  Usage Tracking                                     │
 │  FR-026      │  Web Search Fallback                                │
+│  FR-027      │  Composed RAG Pipeline                              │
 └──────────────┴──────────────────────────────────────────────────────┘
 ```
 
@@ -633,6 +634,62 @@ Optional external web search via DuckDuckGo for supplementary information.
 - HTML scraping via httpx
 - Returns search results as structured data
 - Optional — not part of core RAG pipeline
+
+---
+
+#### FR-027: Composed RAG Pipeline
+
+| Attribute | Value |
+|-----------|-------|
+| **Priority** | P0 — Critical |
+| **Endpoint** | `POST /api/v1/chat/rag` |
+
+**Description:**  
+Single composed end-to-end RAG pipeline: query analysis (expansion /
+decomposition) → hybrid retrieval + RRF + reranking → evidence grading →
+corrective retrieval → grounded generation → citation generation →
+verification → bounded answer revision → answer or hard abstention.
+
+**Acceptance Criteria:**
+- Query analysis expands multi-keyword questions and decomposes multi-part
+  questions into retrieval variants (Flow 3)
+- Runs hybrid (vector + lexical) retrieval with RRF fusion and cross-encoder
+  reranking per retrieval query
+- Grades evidence sufficiency before generation and runs a corrective
+  retrieval loop when insufficient (Flow 4)
+- Generates a grounded answer with page/source citations
+- Verifies support and citations, then revises the answer in a bounded loop
+  when verification fails (Flow 4)
+- Automatically abstains (hard abstention) when evidence is insufficient or
+  verification cannot be satisfied — never returns an ungrounded answer
+  (Flow 5)
+- Returns a single composed response with `abstained` flag
+- LLM failures during analysis/citations degrade gracefully without breaking
+  the pipeline
+
+**Response Schema:**
+```json
+{
+  "query": "string",
+  "query_analysis": {
+    "original_query": "string",
+    "expanded_queries": ["string"],
+    "sub_queries": ["string"],
+    "rationale": "string"
+  },
+  "evidence": ["ChunkResult"],
+  "verdict": "EvidenceVerdict",
+  "answer": "string | null",
+  "citations": ["SourceCitation"],
+  "verification": "VerificationResponse | null",
+  "abstained": "boolean",
+  "abstention_reason": "string | null",
+  "abstention_suggestion": "string",
+  "corrective_queries": ["string"],
+  "corrective_attempts": "integer",
+  "revision_attempts": "integer"
+}
+```
 
 ---
 

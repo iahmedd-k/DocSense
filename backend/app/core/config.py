@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     # Bounded Corrective Retrieval (FR-016)
     corrective_retrieval_max_attempts: int = 2
 
+    # Composed RAG pipeline (Flow 2 - Flow 5)
+    query_analysis_max_expansion: int = 3
+    query_analysis_max_sub_queries: int = 3
+    answer_revision_max_attempts: int = 1
+
     # Embeddings (Hugging Face Inference API)
     embedding_provider: str = "huggingface"
     embedding_model: str = "Snowflake/snowflake-arctic-embed-m"

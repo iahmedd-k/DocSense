@@ -1,0 +1,2 @@
+2026-09-09 15:21:23 | INFO     | DocSense Backend | DocSense Backend v0.1.0 started
+INFO:     127.0.0.1:56535 - "POST /api/v1/auth/login HTTP/1.1" 500 Internal Server Error

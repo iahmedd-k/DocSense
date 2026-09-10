@@ -19,6 +19,8 @@ from app.schemas.evidence import (
     EvidenceVerdict,
     RefinedQuery,
 )
+from app.schemas.query_analysis import QueryAnalysis
+from app.schemas.rag import RagRequest, RagResponse
 from app.schemas.retrieval import ChunkResult, SearchQuery, SearchResponse
 from app.schemas.token import TokenResponse
 from app.schemas.usage import UsageResponse
@@ -36,6 +38,9 @@ __all__ = [
     "DocumentStatusResponse",
     "EvidenceVerdict",
     "LoginRequest",
+    "QueryAnalysis",
+    "RagRequest",
+    "RagResponse",
     "RefinedQuery",
     "RegisterRequest",
     "RoleUpdateRequest",

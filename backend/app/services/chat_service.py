@@ -124,6 +124,24 @@ Rules:
 """
 
 # ---------------------------------------------------------------------------
+# Answer Revision (Flow 4)
+# ---------------------------------------------------------------------------
+
+REVISION_SYSTEM_PROMPT = """\
+You are an answer reviser for a document question-answering pipeline. A \
+previous answer was verified against its retrieved evidence and found to be \
+unsupported, incorrectly cited, or both. Revise the answer so every claim is \
+fully grounded in the provided evidence.
+
+Respond with the revised answer text only; no JSON, no preamble.
+
+Rules:
+- Only use information present in the evidence chunks.
+- If the evidence cannot support a claim, remove the claim instead of guessing.
+- Keep the answer concise and faithful to the evidence.
+"""
+
+# ---------------------------------------------------------------------------
 # Web Search Provider (FR-023)
 # ---------------------------------------------------------------------------
 
@@ -471,6 +489,91 @@ class ChatService:
             "If the evidence does not contain enough information, say so "
             "clearly. Always ground your response in the evidence."
         )
+
+    # ------------------------------------------------------------------
+    # Composed RAG pipeline helpers (non-streaming generation + revision)
+    # ------------------------------------------------------------------
+
+    def generate_answer(
+        self,
+        query: str,
+        evidence: list[ChunkResult],
+        temperature: float = 0.0,
+    ) -> str:
+        """Generate a grounded (non-streaming) answer from evidence.
+
+        Uses the same grounding contract as :meth:`stream_answer`: the model
+        is instructed to answer using only the provided evidence chunks.
+        """
+        system_prompt = self._build_grounded_system_prompt()
+        evidence_summary = self._format_evidence(evidence)
+        user_prompt = (
+            f"User query: {query}\n\n"
+            f"Evidence chunks:\n{evidence_summary}"
+        )
+
+        try:
+            return self.llm_service.complete(
+                system_prompt,
+                user_prompt,
+                temperature=temperature,
+            )
+        except LLMError as exc:
+            raise ServiceUnavailableError(
+                f"Answer generation failed: {exc}"
+            ) from exc
+
+    def revise_answer(
+        self,
+        query: str,
+        evidence: list[ChunkResult],
+        answer: str,
+        verification: VerificationResponse,
+        temperature: float = 0.0,
+    ) -> str:
+        """Revise a non-grounded answer using verification feedback (Flow 4).
+
+        The previous answer plus the verification issues are fed back to the
+        LLM so every claim can be re-grounded in the evidence before a final
+        verification pass.
+        """
+        evidence_summary = self._format_evidence(evidence)
+        issue_lines = self._format_verification_issues(verification)
+        user_prompt = (
+            f"User query: {query}\n\n"
+            f"Previous answer:\n{answer}\n\n"
+            f"Verification feedback:\n{issue_lines}\n\n"
+            f"Evidence chunks:\n{evidence_summary}"
+        )
+
+        try:
+            return self.llm_service.complete(
+                REVISION_SYSTEM_PROMPT,
+                user_prompt,
+                temperature=temperature,
+            )
+        except LLMError as exc:
+            raise ServiceUnavailableError(
+                f"Answer revision failed: {exc}"
+            ) from exc
+
+    @staticmethod
+    def _format_verification_issues(verification: VerificationResponse) -> str:
+        lines = [
+            f"supported={verification.supported}",
+            f"citations_correct={verification.citations_correct}",
+        ]
+        if verification.explanation:
+            lines.append(f"explanation={verification.explanation}")
+        if verification.issues:
+            lines.append("issues:")
+            for issue in verification.issues:
+                lines.append(
+                    f"- {issue.citation_text} "
+                    f"(claimed document={issue.claimed_document_id}, "
+                    f"page={issue.claimed_page}): {issue.issue}"
+                )
+        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # FR-023 — Web Search

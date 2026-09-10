@@ -83,7 +83,7 @@ def _register(client, email="owner@example.com"):
 
 def test_upload_requires_auth(client):
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
     )
 
@@ -95,7 +95,7 @@ def test_upload_success(client, monkeypatch):
     token = _register(client)
 
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -116,7 +116,7 @@ def test_upload_rejects_non_pdf(client, monkeypatch):
     token = _register(client)
 
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("notes.txt", b"hello world", "text/plain")},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -129,7 +129,7 @@ def test_upload_rejects_wrong_mime_for_pdf(client, monkeypatch):
     token = _register(client)
 
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("photo.pdf", VALID_PDF, "image/png")},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -142,7 +142,7 @@ def test_upload_rejects_empty_file(client, monkeypatch):
     token = _register(client)
 
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("empty.pdf", b"", "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -156,7 +156,7 @@ def test_upload_rejects_oversized_file(client, monkeypatch):
 
     oversized = b"x" * (settings.max_file_size_mb * 1024 * 1024 + 1)
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("big.pdf", oversized, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -169,7 +169,7 @@ def test_upload_storage_failure_returns_503(client, monkeypatch):
     token = _register(client)
 
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -183,17 +183,17 @@ def test_list_returns_only_own_documents(client, monkeypatch):
     token_other = _register(client, "other@example.com")
 
     client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("a.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token_owner}"},
     )
     client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("b.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token_owner}"},
     )
     client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("c.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token_other}"},
     )
@@ -218,7 +218,7 @@ def test_cannot_access_another_users_document(client, monkeypatch):
     token_other = _register(client, "other@example.com")
 
     upload = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("private.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token_owner}"},
     ).json()
@@ -248,7 +248,7 @@ def test_get_document_status_own_document(client, monkeypatch):
     token = _register(client)
 
     upload = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     ).json()
@@ -270,7 +270,7 @@ def test_get_document_status_requires_auth(client, monkeypatch):
     token = _register(client)
 
     upload = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     ).json()
@@ -298,7 +298,7 @@ def test_get_document_status_other_users_document(client, monkeypatch):
     token_other = _register(client, "other@example.com")
 
     upload = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("private.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token_owner}"},
     ).json()
@@ -317,7 +317,7 @@ def test_upload_corrupt_pdf_marks_failed(client, monkeypatch):
     token = _register(client)
 
     resp = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("broken.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -340,7 +340,7 @@ def test_temp_file_deleted_after_successful_processing(client, monkeypatch):
     token = _register(client)
 
     data = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     ).json()
@@ -361,7 +361,7 @@ def test_upload_persists_chunks_with_embeddings(client, monkeypatch):
     token = _register(client)
 
     data = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     ).json()
@@ -402,7 +402,7 @@ def test_embedding_failure_marks_document_failed(client, monkeypatch):
     token = _register(client)
 
     data = client.post(
-        "/api/v1/documents/upload",
+        "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     ).json()

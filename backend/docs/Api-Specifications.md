@@ -56,6 +56,7 @@ DocSense exposes a RESTful API following OpenAPI 3.1 specification. All endpoint
 │  ┌─────────────────────────────────────────────────────────────────┐    │
 │  │  Chat (JWT Required)                                            │    │
 │  │  POST /chat/citations                                           │    │
+│  │  POST /chat/rag                                                 │    │
 │  │  POST /chat/verify                                              │    │
 │  │  POST /chat/abstain                                             │    │
 │  │  POST /chat/stream                                              │    │
@@ -578,6 +579,117 @@ Search documents using vector, lexical, or hybrid retrieval.
 ---
 
 ## 9. Chat Endpoints
+
+### `POST /chat/rag`
+
+End-to-end composed RAG pipeline: query analysis → hybrid retrieval → evidence
+grading → corrective retrieval → grounded generation → citation generation →
+verification → bounded revision. It returns either a grounded answer with
+citations, or an explicit abstention (when reliable evidence cannot be
+established).
+
+**Authentication:** JWT Required
+
+**Request Body:**
+```json
+{
+  "query": "string (required)",
+  "top_k": 10,
+  "max_revision_attempts": 1
+}
+```
+
+**Response (answer):** `200 OK`
+```json
+{
+  "query": "What was the 2026 budget?",
+  "query_analysis": {
+    "original_query": "What was the 2026 budget?",
+    "expanded_queries": ["budget 2026 figures"],
+    "sub_queries": [],
+    "rationale": "budget question; one expansion variant"
+  },
+  "evidence": [
+    {
+      "chunk_id": 42,
+      "document_id": 1,
+      "content": "The 2026 budget totals 100M.",
+      "page_number": 5,
+      "page_numbers": [5],
+      "content_type": "text",
+      "metadata": {},
+      "score": 0.92,
+      "rerank_score": 0.95
+    }
+  ],
+  "verdict": {
+    "sufficient": true,
+    "confidence_score": 0.94,
+    "reason": "Evidence directly answers the budget question.",
+    "missing_information": []
+  },
+  "answer": "The 2026 operating budget totals $100M.",
+  "citations": [
+    {
+      "text": "The 2026 operating budget totals $100M.",
+      "document_id": 1,
+      "page_number": 5,
+      "chunk_id": 42,
+      "confidence": 0.9
+    }
+  ],
+  "verification": {
+    "supported": true,
+    "citations_correct": true,
+    "issues": [],
+    "explanation": "Answer and citations are grounded in the evidence."
+  },
+  "abstained": false,
+  "abstention_reason": null,
+  "abstention_suggestion": "",
+  "corrective_queries": [],
+  "corrective_attempts": 0,
+  "revision_attempts": 0
+}
+```
+
+**Response (abstention):** `200 OK`
+```json
+{
+  "query": "What was the 2026 budget?",
+  "query_analysis": { "original_query": "What was the 2026 budget?", "expanded_queries": [], "sub_queries": [], "rationale": "" },
+  "evidence": [],
+  "verdict": {
+    "sufficient": false,
+    "confidence_score": 0.15,
+    "reason": "No evidence found for the query.",
+    "missing_information": ["budget figures", "fiscal year"]
+  },
+  "answer": null,
+  "citations": [],
+  "verification": null,
+  "abstained": true,
+  "abstention_reason": "Insufficient evidence to answer this question reliably.",
+  "abstention_suggestion": "Try rephrasing the question or adding related documents.",
+  "corrective_queries": ["budget totals"],
+  "corrective_attempts": 2,
+  "revision_attempts": 0
+}
+```
+
+**Pipeline Steps:**
+```
+query analysis → hybrid retrieval (vector + lexical, RRF, rerank)
+  → evidence grading → [corrective retrieval when insufficient]
+  → grounded generation → citation generation → verification
+  → [bounded revision when verification fails] → answer OR hard abstention
+```
+
+**Errors:**
+- `401 Unauthorized` — Invalid or missing token
+- `422 Validation Error` — Invalid request body
+
+---
 
 ### `POST /chat/citations`
 
