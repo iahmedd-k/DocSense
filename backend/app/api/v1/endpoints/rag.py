@@ -6,7 +6,8 @@ from app.core.config import settings
 from app.db import get_db
 from app.models.user import User
 from app.repositories.document_chunk_repository import DocumentChunkRepository
-from app.schemas.rag import RagRequest, RagResponse
+from app.schemas.rag import ChatResponse, RagRequest, RagResponse
+from app.schemas.response import ApiResponse
 from app.services.chat_service import ChatService
 from app.services.corrective_retrieval_service import CorrectiveRetrievalService
 from app.services.embedding_service import EmbeddingService
@@ -70,7 +71,7 @@ def get_rag_service(db: Session = Depends(get_db)) -> RAGService:
 
 @router.post(
     "/rag",
-    response_model=RagResponse,
+    response_model=ApiResponse[ChatResponse],
     summary="Run the composed RAG pipeline (question → grounded answer or abstention)",
     description=(
         "End-to-end retrieval-augmented generation: query analysis "
@@ -86,9 +87,21 @@ def rag_answer(
     current_user: User = Depends(get_current_user),
     rag_service: RAGService = Depends(get_rag_service),
 ):
-    return rag_service.answer(
+    rag_response = rag_service.answer(
         user_id=current_user.id,
         query=request.query,
         top_k=request.top_k,
         max_revision_attempts=request.max_revision_attempts,
+    )
+    chat_response = ChatResponse.from_rag_response(rag_response)
+
+    if chat_response.abstained:
+        message = chat_response.abstention_reason or "Unable to answer based on available documents."
+    else:
+        message = "Answer generated successfully."
+
+    return ApiResponse(
+        success=True,
+        data=chat_response,
+        message=message,
     )

@@ -6,7 +6,8 @@ from app.core.config import settings
 from app.db import get_db
 from app.models.user import User
 from app.repositories.document_chunk_repository import DocumentChunkRepository
-from app.schemas.retrieval import SearchResponse
+from app.schemas.response import ApiResponse
+from app.schemas.retrieval import SearchApiResponse
 from app.services.embedding_service import EmbeddingService
 from app.services.reranking_service import RerankingService
 from app.services.retrieval_service import (
@@ -44,7 +45,7 @@ def get_retrieval_service(db: Session = Depends(get_db)) -> RetrievalService:
 
 @router.get(
     "",
-    response_model=SearchResponse,
+    response_model=ApiResponse[SearchApiResponse],
     summary="Retrieve chunks from the authenticated user's documents",
 )
 def search(
@@ -66,10 +67,16 @@ def search(
     current_user: User = Depends(get_current_user),
     retrieval_service: RetrievalService = Depends(get_retrieval_service),
 ):
-    return retrieval_service.search(
+    search_response = retrieval_service.search(
         user_id=current_user.id,
         query=query,
         method=method,
         top_k=top_k,
         rerank=rerank,
+    )
+    clean_response = SearchApiResponse.from_search_response(search_response)
+    return ApiResponse(
+        success=True,
+        data=clean_response,
+        message=f"Found {clean_response.total_results} results.",
     )

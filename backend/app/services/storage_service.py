@@ -11,12 +11,20 @@ class StorageError(Exception):
     """Raised when an operation against the object storage backend fails."""
 
 
-cloudinary.config(
-    cloud_name=settings.cloudinary_cloud_name,
-    api_key=settings.cloudinary_api_key,
-    api_secret=settings.cloudinary_api_secret,
-    secure=True,
-)
+_cloudinary_configured = False
+
+
+def _ensure_cloudinary_config() -> None:
+    global _cloudinary_configured
+    if _cloudinary_configured:
+        return
+    cloudinary.config(
+        cloud_name=settings.cloudinary_cloud_name,
+        api_key=settings.cloudinary_api_key,
+        api_secret=settings.cloudinary_api_secret,
+        secure=True,
+    )
+    _cloudinary_configured = True
 
 
 class StorageService:
@@ -33,6 +41,7 @@ class StorageService:
         if not settings.cloudinary_cloud_name:
             raise StorageError("Cloudinary is not configured")
 
+        _ensure_cloudinary_config()
         public_id = public_id or f"docsense/users/{user_id}/{uuid4().hex}"
 
         try:
@@ -54,6 +63,7 @@ class StorageService:
         if not settings.cloudinary_cloud_name:
             raise StorageError("Cloudinary is not configured")
 
+        _ensure_cloudinary_config()
         try:
             uploader.destroy(public_id, resource_type="raw")
         except Exception as exc:

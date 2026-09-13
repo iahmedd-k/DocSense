@@ -5,10 +5,18 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://docsense:adminadmin@db:5432/docsense
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-huggingface}
+      HF_TOKEN: ${HF_TOKEN}
     ports:
       - "8000:8000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    volumes:
+      - hf_cache:/root/.cache/huggingface
 
   db:
     image: pgvector/pgvector:pg16
@@ -18,8 +26,14 @@ services:
       POSTGRES_DB: docsense
     ports:
       - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U docsense -d docsense"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+volumes:
+  pgdata:
+  hf_cache:

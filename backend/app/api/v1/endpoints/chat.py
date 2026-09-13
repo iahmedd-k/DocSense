@@ -18,7 +18,8 @@ from app.schemas.chat import (
     WebSearchRequest,
     WebSearchResponse,
 )
-from app.schemas.rag import RagRequest, RagResponse
+from app.schemas.rag import ChatResponse, RagRequest, RagResponse
+from app.schemas.response import ApiResponse
 from app.services.chat_service import ChatService
 from app.services.corrective_retrieval_service import CorrectiveRetrievalService
 from app.services.embedding_service import EmbeddingService
@@ -86,8 +87,8 @@ def get_rag_service(db: Session = Depends(get_db)) -> RAGService:
 
 @router.post(
     "",
-    response_model=RagResponse,
-    summary="Ask a document-grounded question (FR-010–FR-020)",
+    response_model=ApiResponse[ChatResponse],
+    summary="Ask a document-grounded question",
     description=(
         "End-to-end retrieval-augmented generation: query analysis "
         "→ hybrid retrieval → evidence grading → grounded generation → "
@@ -99,57 +100,72 @@ def chat(
     current_user: User = Depends(get_current_user),
     rag_service: RAGService = Depends(get_rag_service),
 ):
-    return rag_service.answer(
+    rag_response = rag_service.answer(
         user_id=current_user.id,
         query=request.query,
         top_k=request.top_k,
         max_revision_attempts=request.max_revision_attempts,
     )
+    chat_response = ChatResponse.from_rag_response(rag_response)
+
+    if chat_response.abstained:
+        message = chat_response.abstention_reason or "Unable to answer based on available documents."
+    else:
+        message = "Answer generated successfully."
+
+    return ApiResponse(
+        success=True,
+        data=chat_response,
+        message=message,
+    )
 
 
 @router.post(
     "/citations",
-    response_model=CitationResponse,
-    summary="Generate page/source citations for the grounded answer (FR-018)",
+    response_model=ApiResponse[CitationResponse],
+    summary="Generate page/source citations for the grounded answer",
 )
 def generate_citations(
     request: CitationRequest,
     current_user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return chat_service.generate_citations(request)
+    result = chat_service.generate_citations(request)
+    return ApiResponse(success=True, data=result, message="Citations generated.")
 
 
 @router.post(
     "/verify",
-    response_model=VerificationResponse,
-    summary="Verify the answer and its citations against evidence (FR-019)",
+    response_model=ApiResponse[VerificationResponse],
+    summary="Verify the answer and its citations against evidence",
 )
 def verify_answer(
     request: VerificationRequest,
     current_user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return chat_service.verify_answer(request)
+    result = chat_service.verify_answer(request)
+    return ApiResponse(success=True, data=result, message="Verification complete.")
 
 
 @router.post(
     "/abstain",
-    response_model=AbstentionResponse,
-    summary="Return an explicit abstention response (FR-020)",
+    response_model=ApiResponse[AbstentionResponse],
+    summary="Return an explicit abstention response",
 )
 def abstain(
     request: AbstentionRequest,
     current_user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return chat_service.decide_abstention(request)
+    result = chat_service.decide_abstention(request)
+    return ApiResponse(success=True, data=result, message="Abstention decision made.")
 
 
 @router.post(
     "/stream",
     response_class=StreamingResponse,
-    summary="Stream the grounded LLM response (FR-021)",
+    summary="Stream the grounded LLM response",
 )
 def stream_chat(
     request: StreamChatRequest,
@@ -170,12 +186,13 @@ def stream_chat(
 
 @router.post(
     "/web-search",
-    response_model=WebSearchResponse,
-    summary="Perform optional external web search (FR-023)",
+    response_model=ApiResponse[WebSearchResponse],
+    summary="Perform optional external web search",
 )
 def web_search(
     request: WebSearchRequest,
     current_user: User = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    return chat_service.web_search(request)
+    result = chat_service.web_search(request)
+    return ApiResponse(success=True, data=result, message="Web search completed.")

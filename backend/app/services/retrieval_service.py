@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from app.core.config import settings
@@ -42,13 +43,17 @@ class VectorRetrievalService:
         query: str,
         top_k: int,
     ) -> list[ChunkResult]:
+        t0 = time.perf_counter()
         query_vector = self.embedding_service.generate_embedding(query)
+        logger.info("Vector retrieval embed: %.3fs", time.perf_counter() - t0)
 
+        t0 = time.perf_counter()
         results = self.chunk_repository.search_by_embedding(
             user_id=user_id,
             query_vector=query_vector,
             top_k=top_k,
         )
+        logger.info("Vector retrieval DB search: %.3fs (%d results)", time.perf_counter() - t0, len(results))
 
         return [
             self._to_result(chunk) for chunk in results
@@ -90,12 +95,14 @@ class LexicalRetrievalService:
         query: str,
         top_k: int,
     ) -> list[ChunkResult]:
+        t0 = time.perf_counter()
         results = self.chunk_repository.search_by_text(
             user_id=user_id,
             query=query,
             top_k=top_k,
             language=self.language,
         )
+        logger.info("Lexical retrieval DB search: %.3fs (%d results)", time.perf_counter() - t0, len(results))
 
         return [
             self._to_result(chunk) for chunk in results

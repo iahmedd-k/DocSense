@@ -158,17 +158,18 @@ class DocumentChunkRepository:
         user query, filters strictly to the given ``user_id`` (ownership), and
         ranks results with ``ts_rank`` descending.
         """
+        search_col = sa.column("search_vector", type_=sa.dialects.postgresql.TSVECTOR)
         tsquery = sa.func.websearch_to_tsquery(language, query)
         statement = (
             select(
                 DocumentChunk,
                 sa.func.ts_rank(
-                    DocumentChunk.search_vector,
+                    search_col,
                     tsquery,
                 ).label("rank"),
             )
             .where(DocumentChunk.user_id == user_id)
-            .where(DocumentChunk.search_vector.op("@@")(tsquery))
+            .where(search_col.op("@@")(tsquery))
             .order_by(sa.desc("rank"))
             .limit(top_k)
         )

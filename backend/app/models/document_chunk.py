@@ -3,7 +3,7 @@ from datetime import datetime
 import sqlalchemy as sa
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.config import settings
@@ -66,17 +66,13 @@ class DocumentChunk(Base):
         nullable=False,
     )
 
-    # PostgreSQL generated column (see migration 0006) holding the tsvector for
-    # full-text search over ``content``. It is maintained entirely by the
-    # database; the application never writes to it. A SQLite fallback type is
-    # provided so the ORM model works in tests using the SQLite dialect.
-    search_vector = mapped_column(
-        TSVECTOR().with_variant(sa.Text(), "sqlite"),
-        nullable=True,
-    )
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
         nullable=False,
     )
+
+    # NOTE: ``search_vector`` is a PostgreSQL GENERATED ALWAYS AS column
+    # (added in migration 0006). It is NOT mapped to the ORM to prevent
+    # SQLAlchemy from including it in INSERT statements. Access it via
+    # ``DocumentChunk.__table__.c.search_vector`` in queries.

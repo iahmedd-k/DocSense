@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from app.core.config import settings
 from app.schemas.chat import CitationRequest, VerificationRequest
@@ -73,15 +74,24 @@ class RAGService:
         max_revision_attempts: int | None = None,
     ) -> RagResponse:
         """Run the composed pipeline and return a grounded response or abstention."""
+        t0 = time.perf_counter()
+
+        t_step = time.perf_counter()
         analysis = self.query_analysis_service.analyze(query)
+        logger.info("RAG [user=%s] query_analysis: %.3fs", user_id, time.perf_counter() - t_step)
 
+        t_step = time.perf_counter()
         evidence = self._retrieve_merged(user_id, query, analysis, top_k)
+        logger.info("RAG [user=%s] retrieval: %.3fs (%d chunks)", user_id, time.perf_counter() - t_step, len(evidence))
 
+        t_step = time.perf_counter()
         verdict = self.evidence_grader_service.grade(query, evidence)
+        logger.info("RAG [user=%s] evidence_grading: %.3fs (sufficient=%s, confidence=%.3f)", user_id, time.perf_counter() - t_step, verdict.sufficient, verdict.confidence_score)
 
         corrective_queries: list[str] = []
         corrective_attempts = 0
         if not verdict.sufficient and self.corrective_retrieval_service is not None:
+            t_step = time.perf_counter()
             corrective = self.corrective_retrieval_service.search(
                 user_id, query, top_k
             )
@@ -89,11 +99,12 @@ class RAGService:
             verdict = corrective.verdict
             corrective_queries = corrective.corrective_queries
             corrective_attempts = corrective.attempts_used
+            logger.info("RAG [user=%s] corrective_retrieval: %.3fs (attempts=%d)", user_id, time.perf_counter() - t_step, corrective_attempts)
 
         # Flow 5: hard abstention -- never invent an answer without reliable
         # evidence (regardless of whether corrective retrieval was attempted).
         if not verdict.sufficient:
-            return self._abstain(
+            resp = self._abstain(
                 query=query,
                 analysis=analysis,
                 evidence=evidence,
@@ -105,17 +116,26 @@ class RAGService:
                     or "Insufficient evidence to answer this question reliably."
                 ),
             )
+            logger.info("RAG [user=%s] TOTAL (abstained): %.3fs", user_id, time.perf_counter() - t0)
+            return resp
 
         # Flow 2: grounded generation + citations.
+        t_step = time.perf_counter()
         answer = self.chat_service.generate_answer(query, evidence)
+        logger.info("RAG [user=%s] generate_answer: %.3fs", user_id, time.perf_counter() - t_step)
 
+        t_step = time.perf_counter()
         citations = self._try_generate_citations(query, answer, evidence)
+        logger.info("RAG [user=%s] citations: %.3fs", user_id, time.perf_counter() - t_step)
 
         # Flow 4: verification, then a bounded revision loop.
+        t_step = time.perf_counter()
         verification = self.chat_service.verify_answer(
             VerificationRequest(query=query, answer=answer, evidence=evidence)
         )
+        logger.info("RAG [user=%s] verification: %.3fs", user_id, time.perf_counter() - t_step)
 
+        t_step = time.perf_counter()
         revision_attempts, answer, verification = self._revise_until_verified(
             query=query,
             evidence=evidence,
@@ -123,6 +143,7 @@ class RAGService:
             verification=verification,
             max_revision_attempts=max_revision_attempts,
         )
+        logger.info("RAG [user=%s] revision: %.3fs (attempts=%d)", user_id, time.perf_counter() - t_step, revision_attempts)
 
         if not self._verification_passed(verification):
             logger.info(
@@ -131,7 +152,7 @@ class RAGService:
                 user_id,
                 revision_attempts,
             )
-            return self._abstain(
+            resp = self._abstain(
                 query=query,
                 analysis=analysis,
                 evidence=evidence,
@@ -144,6 +165,8 @@ class RAGService:
                     "evidence after revision."
                 ),
             )
+            logger.info("RAG [user=%s] TOTAL (abstained after revision): %.3fs", user_id, time.perf_counter() - t0)
+            return resp
 
         logger.info(
             "RAG pipeline for user %s: sufficient=%s revision_attempts=%d "
@@ -153,6 +176,7 @@ class RAGService:
             revision_attempts,
             corrective_attempts,
         )
+        logger.info("RAG [user=%s] TOTAL: %.3fs", user_id, time.perf_counter() - t0)
 
         return RagResponse(
             query=query,

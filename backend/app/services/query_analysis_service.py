@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from app.core.config import settings
 from app.schemas.query_analysis import QueryAnalysis
@@ -70,7 +71,9 @@ class QueryAnalysisService:
         composed pipeline remains available even when analysis is unavailable.
         """
         try:
+            t0 = time.perf_counter()
             data = self.llm_service.complete_json(ANALYSIS_SYSTEM_PROMPT, query)
+            logger.info("LLM query_analysis: %.3fs", time.perf_counter() - t0)
         except LLMError as exc:
             logger.warning("Query analysis LLM call failed: %s", exc)
             return QueryAnalysis(

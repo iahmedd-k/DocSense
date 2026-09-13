@@ -1,6 +1,7 @@
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import api_router
@@ -15,6 +16,12 @@ logger = setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("%s v%s started", settings.project_name, settings.app_version)
+
+    if settings.cloudinary_cloud_name:
+        logger.info("Cloudinary configured (cloud: %s)", settings.cloudinary_cloud_name)
+    else:
+        logger.warning("Cloudinary is NOT configured — uploads will fail")
+
     yield
     logger.info("%s shutting down", settings.project_name)
 
@@ -35,6 +42,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def log_request_time(request: Request, call_next):
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - t0
+    logger.info(
+        "%s %s %d %.3fs",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration,
+    )
+    return response
+
 
 register_exception_handlers(app)
 

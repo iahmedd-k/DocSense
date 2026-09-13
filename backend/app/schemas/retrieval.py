@@ -19,12 +19,7 @@ class SearchQuery(BaseModel):
 
 
 class ChunkResult(BaseModel):
-    """A single retrieved chunk with provenance and a relevance score.
-
-    The ``score`` semantics are method-specific: for vector retrieval it is
-    a cosine similarity in ``[0, 1]``; for full-text retrieval it is the
-    PostgreSQL ``ts_rank`` value (higher is more relevant).
-    """
+    """Internal chunk result with full provenance — used by the pipeline."""
 
     chunk_id: int
     document_id: int
@@ -38,5 +33,54 @@ class ChunkResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    """Internal search response — transformed into SearchApiResponse at the endpoint."""
+
     query: str
     results: list[ChunkResult]
+
+
+# ---------------------------------------------------------------------------
+# Frontend-facing response
+# ---------------------------------------------------------------------------
+
+
+class SearchResultItem(BaseModel):
+    """A single search result trimmed for frontend display."""
+
+    chunk_id: int = Field(..., description="Unique chunk identifier")
+    document_id: int = Field(..., description="Source document id")
+    page_number: int = Field(..., description="Page number in the source document")
+    content: str = Field(..., description="Chunk text content")
+    score: float = Field(..., description="Relevance score (higher = more relevant)")
+    content_type: str = Field(default="text", description="Content type")
+
+
+class SearchApiResponse(BaseModel):
+    """Clean, frontend-friendly search response."""
+
+    query: str = Field(..., description="The original search query")
+    results: list[SearchResultItem] = Field(
+        default_factory=list,
+        description="Retrieved chunks ranked by relevance",
+    )
+    total_results: int = Field(..., description="Number of results returned")
+
+    @classmethod
+    def from_search_response(cls, search: SearchResponse) -> SearchApiResponse:
+        """Transform an internal SearchResponse into a clean SearchApiResponse."""
+        results = [
+            SearchResultItem(
+                chunk_id=r.chunk_id,
+                document_id=r.document_id,
+                page_number=r.page_number,
+                content=r.content,
+                score=r.rerank_score if r.rerank_score is not None else r.score,
+                content_type=r.content_type,
+            )
+            for r in search.results
+        ]
+        return cls(
+            query=search.query,
+            results=results,
+            total_results=len(results),
+        )

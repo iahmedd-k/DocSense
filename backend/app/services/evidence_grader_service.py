@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from app.core.config import settings
 from app.schemas.evidence import EvidenceVerdict
@@ -87,7 +88,9 @@ class EvidenceGraderService:
 
         user_prompt = self._build_prompt(query, window)
         try:
+            t0 = time.perf_counter()
             data = self.llm_service.complete_json(GRADER_SYSTEM_PROMPT, user_prompt)
+            logger.info("LLM evidence_grading: %.3fs", time.perf_counter() - t0)
         except LLMError as exc:
             raise EvidenceGraderError(
                 f"Evidence grader LLM call failed: {exc}"

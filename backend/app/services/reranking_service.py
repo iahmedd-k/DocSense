@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import time
 
 from app.core.config import settings
 from app.schemas.retrieval import ChunkResult
@@ -144,6 +145,7 @@ class RerankingService:
 
         top_n = self._resolve_top_n(top_n)
 
+        t0 = time.perf_counter()
         contents = [candidate.content for candidate in candidates]
         scores = self.provider.rerank(query, contents)
 
@@ -159,9 +161,10 @@ class RerankingService:
         reranked.sort(key=lambda item: item.rerank_score, reverse=True)
 
         logger.info(
-            "Reranked %d candidates with %s (returning top %d)",
+            "Reranked %d candidates with %s in %.3fs (returning top %d)",
             len(reranked),
             settings.reranker_model,
+            time.perf_counter() - t0,
             top_n,
         )
         return reranked[:top_n]

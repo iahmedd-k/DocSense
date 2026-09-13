@@ -175,7 +175,9 @@ class DocumentService:
             )
         except StorageError as exc:
             self._delete_temp_file(temp_path)
-            raise ServiceUnavailableError("File storage is temporarily unavailable") from exc
+            raise ServiceUnavailableError(
+                f"File storage is temporarily unavailable: {exc}"
+            ) from exc
 
         document = self.document_repository.create(
             user_id=user_id,

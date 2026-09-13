@@ -7,6 +7,7 @@ from app.models.user import User
 from app.repositories.document_chunk_repository import DocumentChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentResponse, DocumentStatusResponse
+from app.schemas.response import ApiResponse
 from app.services.chunking_service import ChunkingService
 from app.services.document_service import DocumentService
 from app.services.embedding_service import EmbeddingService
@@ -29,7 +30,7 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
 
 @router.post(
     "",
-    response_model=DocumentResponse,
+    response_model=ApiResponse[DocumentResponse],
     status_code=status.HTTP_201_CREATED,
     summary="Upload a PDF document",
 )
@@ -39,29 +40,35 @@ def upload_document(
     document_service: DocumentService = Depends(get_document_service),
 ):
     file_bytes = file.file.read()
-    return document_service.upload(
+    result = document_service.upload(
         user_id=current_user.id,
         filename=file.filename or "",
         content_type=file.content_type,
         file_bytes=file_bytes,
     )
+    return ApiResponse(success=True, data=result, message="Document uploaded successfully.")
 
 
 @router.get(
     "",
-    response_model=list[DocumentResponse],
+    response_model=ApiResponse[list[DocumentResponse]],
     summary="List the authenticated user's documents",
 )
 def list_documents(
     current_user: User = Depends(get_current_user),
     document_service: DocumentService = Depends(get_document_service),
 ):
-    return document_service.list_documents(current_user.id)
+    results = document_service.list_documents(current_user.id)
+    return ApiResponse(
+        success=True,
+        data=results,
+        message=f"Found {len(results)} document(s).",
+    )
 
 
 @router.get(
     "/{document_id}/status",
-    response_model=DocumentStatusResponse,
+    response_model=ApiResponse[DocumentStatusResponse],
     summary="Get a document's processing status",
 )
 def get_document_status(
@@ -69,12 +76,13 @@ def get_document_status(
     current_user: User = Depends(get_current_user),
     document_service: DocumentService = Depends(get_document_service),
 ):
-    return document_service.get_document_status(current_user.id, document_id)
+    result = document_service.get_document_status(current_user.id, document_id)
+    return ApiResponse(success=True, data=result, message="Document status retrieved.")
 
 
 @router.get(
     "/{document_id}",
-    response_model=DocumentResponse,
+    response_model=ApiResponse[DocumentResponse],
     summary="Get one of the authenticated user's documents",
 )
 def get_document(
@@ -82,7 +90,8 @@ def get_document(
     current_user: User = Depends(get_current_user),
     document_service: DocumentService = Depends(get_document_service),
 ):
-    return document_service.get_document(current_user.id, document_id)
+    result = document_service.get_document(current_user.id, document_id)
+    return ApiResponse(success=True, data=result, message="Document retrieved.")
 
 
 @router.delete(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import AsyncGenerator
 
 import httpx
@@ -18,6 +19,7 @@ from app.schemas.chat import (
     SourceCitation,
     VerificationRequest,
     VerificationResponse,
+    WebSearchRequest,
     WebSearchResponse,
     WebSearchResultItem,
 )
@@ -271,10 +273,12 @@ class ChatService:
         )
 
         try:
+            t0 = time.perf_counter()
             data = self.llm_service.complete_json(
                 CITATION_SYSTEM_PROMPT,
                 user_prompt,
             )
+            logger.info("LLM citations: %.3fs", time.perf_counter() - t0)
         except LLMError as exc:
             raise ServiceUnavailableError(
                 f"Citation generation failed: {exc}"
@@ -343,10 +347,12 @@ class ChatService:
         )
 
         try:
+            t0 = time.perf_counter()
             data = self.llm_service.complete_json(
                 VERIFICATION_SYSTEM_PROMPT,
                 user_prompt,
             )
+            logger.info("LLM verification: %.3fs", time.perf_counter() - t0)
         except LLMError as exc:
             raise ServiceUnavailableError(
                 f"Answer verification failed: {exc}"
@@ -513,11 +519,14 @@ class ChatService:
         )
 
         try:
-            return self.llm_service.complete(
+            t0 = time.perf_counter()
+            result = self.llm_service.complete(
                 system_prompt,
                 user_prompt,
                 temperature=temperature,
             )
+            logger.info("LLM generate_answer: %.3fs", time.perf_counter() - t0)
+            return result
         except LLMError as exc:
             raise ServiceUnavailableError(
                 f"Answer generation failed: {exc}"
@@ -547,11 +556,14 @@ class ChatService:
         )
 
         try:
-            return self.llm_service.complete(
+            t0 = time.perf_counter()
+            result = self.llm_service.complete(
                 REVISION_SYSTEM_PROMPT,
                 user_prompt,
                 temperature=temperature,
             )
+            logger.info("LLM revise_answer: %.3fs", time.perf_counter() - t0)
+            return result
         except LLMError as exc:
             raise ServiceUnavailableError(
                 f"Answer revision failed: {exc}"

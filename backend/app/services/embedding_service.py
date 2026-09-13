@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import time
 
 import httpx
 
@@ -23,20 +24,36 @@ class EmbeddingProvider(abc.ABC):
         ...
 
 
-class HuggingFaceEmbeddingProvider(EmbeddingProvider):
-    """Embedding provider backed by the Hugging Face Inference Providers router.
+class LocalEmbeddingProvider(EmbeddingProvider):
+    """Local embedding provider using sentence-transformers."""
 
-    Calls the OpenAI-compatible embeddings route hosted on the HF router:
-        POST https://router.huggingface.co/v1/embeddings
-    with ``{"model": <hf-model-id>, "input": [text, ...]}`` and returns one
-    vector per text.
+    def __init__(self, model_name: str):
+        from sentence_transformers import SentenceTransformer
+
+        logger.info("Loading local embedding model: %s", model_name)
+        self.model = SentenceTransformer(model_name)
+        logger.info("Local embedding model loaded: %s", model_name)
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        embeddings = self.model.encode(texts, show_progress_bar=False)
+        return embeddings.tolist()
+
+
+class HuggingFaceEmbeddingProvider(EmbeddingProvider):
+    """Embedding provider backed by the Hugging Face Inference API.
+
+    Calls the HF Inference API:
+        POST https://api-inference.huggingface.co/models/{model}
+    with ``{"inputs": [text, ...]}`` and returns one vector per text.
     """
 
     def __init__(
         self,
         token: str,
         model: str,
-        base_url: str = "https://router.huggingface.co/v1",
+        base_url: str = "https://api-inference.huggingface.co",
     ):
         self.token = token
         self.model = model
@@ -47,14 +64,13 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
         if not texts:
             return []
 
-        url = f"{self.base_url}/embeddings"
+        url = f"{self.base_url}/models/{self.model}"
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": self.model,
-            "input": texts,
+            "inputs": texts,
         }
 
         try:
@@ -97,6 +113,9 @@ class EmbeddingService:
     def _build_default_provider() -> EmbeddingProvider:
         provider_name = settings.embedding_provider.lower()
 
+        if provider_name == "local":
+            return LocalEmbeddingProvider(model_name=settings.embedding_model)
+
         if provider_name == "huggingface":
             if not settings.huggingface_token:
                 raise EmbeddingError(
@@ -128,7 +147,9 @@ class EmbeddingService:
             settings.embedding_model,
         )
 
+        t0 = time.perf_counter()
         embeddings = self.provider.embed(texts)
+        logger.info("Embedding generation: %.3fs", time.perf_counter() - t0)
 
         if len(embeddings) != len(texts):
             raise EmbeddingError(
@@ -147,14 +168,14 @@ class EmbeddingService:
 def _parse_embeddings_response(data) -> list[list[float]]:
     """Normalize Hugging Face responses to a flat list of vectors.
 
-    The HF router returns OpenAI-compatible responses::
-
-        {"data": [{"embedding": [0.1, ...]}, {"embedding": [0.3, ...]}]}
-
-    Some endpoints still return a bare list of vectors (``[[...], [...]]``)
-    which we accept as a fallback.
+    The HF API can return:
+    - A bare list of vectors ``[[...], [...]]`` for multiple inputs
+    - A single flat vector ``[...]`` for a single input
+    - An OpenAI-compatible dict ``{"data": [{"embedding": ...}]}``
     """
     if isinstance(data, list):
+        if data and isinstance(data[0], (int, float)):
+            return [data]
         return data
 
     if isinstance(data, dict) and "data" in data:

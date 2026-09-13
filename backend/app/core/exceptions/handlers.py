@@ -9,6 +9,7 @@ from app.core.exceptions.exceptions import AppException, ConflictError
 
 def _error_response(status_code: int, message: str, errors: list | None = None) -> JSONResponse:
     body: dict = {
+        "success": False,
         "status_code": status_code,
         "message": message,
     }
