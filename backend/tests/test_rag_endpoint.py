@@ -1,4 +1,4 @@
-from app.api.v1.endpoints.rag import get_rag_service
+from app.api.v1.endpoints.chat import get_rag_service
 from app.main import app
 
 
@@ -99,7 +99,7 @@ def _auth_headers(token):
 
 
 def test_rag_requires_auth(client):
-    resp = client.post("/api/v1/chat/rag", json={"query": "What is the budget?"})
+    resp = client.post("/api/v1/chat", json={"query": "What is the budget?"})
 
     assert resp.status_code == 401
 
@@ -111,7 +111,7 @@ def test_rag_returns_grounded_response(client):
     token = _register(client, "rag-user@example.com")
 
     resp = client.post(
-        "/api/v1/chat/rag",
+        "/api/v1/chat",
         json={"query": "What is the budget?", "top_k": 5},
         headers=_auth_headers(token),
     )
@@ -134,7 +134,7 @@ def test_rag_returns_abstention_response(client):
     token = _register(client, "rag-abstain@example.com")
 
     resp = client.post(
-        "/api/v1/chat/rag",
+        "/api/v1/chat",
         json={"query": "What is unknown?"},
         headers=_auth_headers(token),
     )
@@ -153,7 +153,7 @@ def test_rag_rejects_empty_query(client):
     token = _register(client, "rag-empty@example.com")
 
     resp = client.post(
-        "/api/v1/chat/rag",
+        "/api/v1/chat",
         json={"query": ""},
         headers=_auth_headers(token),
     )

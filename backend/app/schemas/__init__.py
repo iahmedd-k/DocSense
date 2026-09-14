@@ -13,6 +13,16 @@ from app.schemas.chat import (
     WebSearchResponse,
     WebSearchResultItem,
 )
+from app.schemas.conversation import (
+    ConversationCreateRequest,
+    ConversationDetailResponse,
+    ConversationListResponse,
+    ConversationResponse,
+    ConversationUpdateRequest,
+    MessageCitationResponse,
+    MessageWithContext,
+    MessageResponse,
+)
 from app.schemas.document import DocumentResponse, DocumentStatusResponse
 from app.schemas.evidence import (
     CorrectiveRetrievalResponse,
@@ -42,11 +52,19 @@ __all__ = [
     "CitationMismatch",
     "CitationRequest",
     "CitationResponse",
+    "ConversationCreateRequest",
+    "ConversationDetailResponse",
+    "ConversationListResponse",
+    "ConversationResponse",
+    "ConversationUpdateRequest",
     "CorrectiveRetrievalResponse",
     "DocumentResponse",
     "DocumentStatusResponse",
     "EvidenceVerdict",
     "LoginRequest",
+    "MessageCitationResponse",
+    "MessageWithContext",
+    "MessageResponse",
     "QueryAnalysis",
     "RagRequest",
     "RagResponse",

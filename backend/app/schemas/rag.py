@@ -1,3 +1,5 @@
+from typing import Self
+
 from pydantic import BaseModel, Field
 
 from app.schemas.chat import SourceCitation, VerificationResponse
@@ -14,6 +16,10 @@ class RagRequest(BaseModel):
         min_length=1,
         max_length=500,
         description="The user question to answer",
+    )
+    conversation_id: int | None = Field(
+        default=None,
+        description="Optional conversation ID to continue a conversation",
     )
     top_k: int | None = Field(
         default=None,
@@ -103,7 +109,7 @@ class ChatResponse(BaseModel):
     )
 
     @classmethod
-    def from_rag_response(cls, rag: RagResponse) -> ChatResponse:
+    def from_rag_response(cls, rag: RagResponse) -> Self:
         """Transform an internal RagResponse into a clean ChatResponse."""
         sources = [
             SourceChunk(

@@ -135,29 +135,53 @@ class EmbeddingService:
     def generate_embeddings(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a batch of texts.
 
+        Rejects any text that is empty or whitespace-only as a safety net
+        (the chunking layer is the primary guard for size).
+
         Raises EmbeddingError on failure.
         """
         if not texts:
             return []
 
+        original_count = len(texts)
+        filtered = [t for t in texts if t.strip()]
+
+        if not filtered:
+            raise EmbeddingError(
+                "All texts rejected: no non-empty texts to embed"
+            )
+
+        if len(filtered) < original_count:
+            logger.warning(
+                "Filtered %d empty/whitespace texts before embedding "
+                "(%d remaining)",
+                original_count - len(filtered),
+                len(filtered),
+            )
+
         logger.info(
             "Generating embeddings for %d texts using %s/%s",
-            len(texts),
+            len(filtered),
             settings.embedding_provider,
             settings.embedding_model,
         )
 
         t0 = time.perf_counter()
-        embeddings = self.provider.embed(texts)
+        embeddings = self.provider.embed(filtered)
         logger.info("Embedding generation: %.3fs", time.perf_counter() - t0)
 
-        if len(embeddings) != len(texts):
+        if len(embeddings) != len(filtered):
             raise EmbeddingError(
-                f"Expected {len(texts)} embeddings, got {len(embeddings)}"
+                f"Expected {len(filtered)} embeddings, got {len(embeddings)}"
             )
 
         logger.info("Successfully generated %d embeddings", len(embeddings))
         return embeddings
+
+    @staticmethod
+    def filter_texts(texts: list[str]) -> list[str]:
+        """Filter out empty/whitespace-only texts to align with generate_embeddings."""
+        return [t for t in texts if t.strip()]
 
     def generate_embedding(self, text: str) -> list[float]:
         """Generate an embedding for a single text."""

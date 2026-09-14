@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import type { User, TokenResponse } from "../api/types";
-import { api, setToken, clearToken, isAuthenticated } from "../api/client";
+import { api, setToken, clearToken } from "../api/client";
 
 interface AuthState {
   user: User | null;
@@ -25,7 +25,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
-    loading: isAuthenticated(),
+    loading: true,
   });
 
   const loadUser = useCallback(async () => {
@@ -69,6 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearToken();
     setState({ user: null, loading: false });
   }, []);
+
+  useEffect(() => {
+    loadUser();
+  }, [loadUser]);
 
   return (
     <AuthContext.Provider value={{ ...state, login, register, logout, loadUser }}>

@@ -112,7 +112,7 @@ def test_hf_provider_posts_to_embeddings_route():
     result = provider.embed(["hello", "world"])
 
     assert result == [[0.1, 0.2], [0.3, 0.4]]
-    assert captured["url"] == "https://router.huggingface.co/v1/embeddings"
+    assert "Snowflake/snowflake-arctic-embed-m" in captured["url"]
     assert captured["auth"] == "Bearer test-token"
 
 
@@ -126,9 +126,10 @@ def test_hf_provider_sends_model_and_inputs():
     provider = _provider_with(handler)
     provider.embed(["hello"])
 
-    assert captured["payload"] == (
-        '{"model":"Snowflake/snowflake-arctic-embed-m","input":["hello"]}'
-    )
+    import json
+    payload = json.loads(captured["payload"])
+    assert "inputs" in payload
+    assert payload["inputs"] == ["hello"]
 
 
 def test_hf_provider_accepts_openai_compatible_response():

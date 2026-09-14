@@ -1,18 +1,11 @@
-import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading, loadUser } = useAuth();
+  const { user, loading } = useAuth();
   const location = useLocation();
-
-  useEffect(() => {
-    if (!user && !loading) {
-      loadUser();
-    }
-  }, [user, loading, loadUser]);
 
   if (loading) {
     return (

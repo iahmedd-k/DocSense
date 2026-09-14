@@ -34,8 +34,8 @@ class Settings(BaseSettings):
 
     local_temp_dir: str = "./tmp"
 
-    chunk_size: int = 500
-    chunk_overlap: int = 50
+    chunk_size: int = 400  # token count (not characters)
+    chunk_overlap: int = 50  # token count
 
     # Retrieval
     retrieval_default_top_k: int = 10
@@ -49,9 +49,15 @@ class Settings(BaseSettings):
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     reranker_max_results: int = 20
     reranker_candidate_multiplier: int = 2
+    min_rerank_score: float = 0.1
 
-    # Evidence Sufficiency Grading (FR-015)
-    evidence_grading_top_k: int = 4
+    # Evidence Sufficiency Grading (FR-015) — adaptive per query intent
+    evidence_grading_top_k: int = 12  # default fallback
+    evidence_grading_top_k_summarization: int = 25
+    evidence_grading_top_k_qa: int = 10
+    evidence_grading_top_k_comparison: int = 15
+    evidence_grading_top_k_listing: int = 15
+    evidence_grading_top_k_open_ended: int = 12
 
     # Bounded Corrective Retrieval (FR-016)
     corrective_retrieval_max_attempts: int = 2

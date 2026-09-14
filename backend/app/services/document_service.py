@@ -12,11 +12,33 @@ from app.schemas.document import DocumentStatusResponse
 from app.services.chunking_service import ChunkingService
 from app.services.embedding_service import EmbeddingError, EmbeddingService
 from app.services.pdf_parser_service import PdfParseError, PdfParserService
+from app.services.spreadsheet_parser_service import SpreadsheetParseError, SpreadsheetParserService
+from app.services.ppt_parser_service import PptParseError, PptParserService
+from app.services.docx_parser_service import DocxParseError, DocxParserService
 from app.services.storage_service import StorageError, StorageService
 
 logger = setup_logging()
 
-ALLOWED_PDF_MIME_TYPES = {"application/pdf", "application/octet-stream"}
+ALLOWED_EXTENSIONS = {
+    ".pdf": "application/pdf",
+    ".csv": "text/csv",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+}
+
+ALLOWED_MIME_TYPES = {
+    "application/pdf",
+    "application/octet-stream",
+    "text/csv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/msword",
+}
 
 
 class DocumentService:
@@ -29,6 +51,9 @@ class DocumentService:
         chunking_service: ChunkingService,
         embedding_service: EmbeddingService,
         document_chunk_repository: DocumentChunkRepository,
+        spreadsheet_parser_service: SpreadsheetParserService | None = None,
+        ppt_parser_service: PptParserService | None = None,
+        docx_parser_service: DocxParserService | None = None,
     ):
         self.document_repository = document_repository
         self.storage_service = storage_service
@@ -36,35 +61,52 @@ class DocumentService:
         self.chunking_service = chunking_service
         self.embedding_service = embedding_service
         self.document_chunk_repository = document_chunk_repository
+        self.spreadsheet_parser_service = spreadsheet_parser_service or SpreadsheetParserService()
+        self.ppt_parser_service = ppt_parser_service or PptParserService()
+        self.docx_parser_service = docx_parser_service or DocxParserService()
 
     @staticmethod
     def _max_file_size_bytes() -> int:
         return settings.max_file_size_mb * 1024 * 1024
 
     @staticmethod
-    def _validate_pdf(filename: str, content_type: str | None) -> None:
+    def _validate_file(filename: str, content_type: str | None) -> str:
+        """Validate file type and return the detected extension."""
         safe_name = os.path.basename(filename)
-        if not safe_name or not safe_name.lower().endswith(".pdf"):
-            raise BadRequestError("Only PDF files are allowed")
+        if not safe_name:
+            raise BadRequestError("Invalid filename")
 
-        if content_type not in (None, *ALLOWED_PDF_MIME_TYPES):
-            raise BadRequestError("Only PDF files are allowed")
+        ext = Path(safe_name).suffix.lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            allowed = ", ".join(ALLOWED_EXTENSIONS.keys())
+            raise BadRequestError(f"Unsupported file type: {ext}. Allowed: {allowed}")
+
+        if content_type and content_type not in ALLOWED_MIME_TYPES:
+            # Some browsers send generic MIME types; only reject if clearly wrong
+            if content_type not in (None, "application/octet-stream", "binary/octet-stream"):
+                logger.warning(
+                    "File MIME type %s does not match extension %s, proceeding anyway",
+                    content_type,
+                    ext,
+                )
+
+        return ext
 
     @staticmethod
     def _temp_dir_for_user(user_id: int) -> Path:
         return Path(settings.local_temp_dir) / f"user_{user_id}"
 
     @staticmethod
-    def _temp_path_for_document(document: Document) -> Path:
+    def _temp_path_for_document(document: Document, ext: str = ".pdf") -> Path:
         file_id = Path(document.storage_key).name
-        return DocumentService._temp_dir_for_user(document.user_id) / f"{file_id}.pdf"
+        return DocumentService._temp_dir_for_user(document.user_id) / f"{file_id}{ext}"
 
-    def _save_temp_file(self, file_bytes: bytes, user_id: int) -> tuple[Path, str]:
+    def _save_temp_file(self, file_bytes: bytes, user_id: int, ext: str) -> tuple[Path, str]:
         file_id = uuid4().hex
         temp_dir = self._temp_dir_for_user(user_id)
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        file_path = temp_dir / f"{file_id}.pdf"
+        file_path = temp_dir / f"{file_id}{ext}"
         file_path.write_bytes(file_bytes)
 
         public_id = f"docsense/users/{user_id}/{file_id}"
@@ -78,10 +120,27 @@ class DocumentService:
         except OSError:
             logger.warning("Failed to delete temporary file %s", file_path)
 
+    def _detect_extension(self, file_path: Path) -> str:
+        """Detect file extension from path."""
+        return file_path.suffix.lower()
+
+    def _parse_file(self, file_path: Path, ext: str) -> "ParsedPdf":
+        """Route to the correct parser based on file extension."""
+        if ext == ".pdf":
+            return self.pdf_parser_service.parse(str(file_path))
+        elif ext in (".csv", ".xlsx", ".xls"):
+            return self.spreadsheet_parser_service.parse(str(file_path))
+        elif ext == ".pptx":
+            return self.ppt_parser_service.parse(str(file_path))
+        elif ext in (".docx", ".doc"):
+            return self.docx_parser_service.parse(str(file_path))
+        else:
+            raise BadRequestError(f"No parser available for file type: {ext}")
+
     def _generate_and_persist_chunks(
         self, parsed: "ParsedPdf", document: Document
     ) -> None:
-        """Chunk the parsed PDF, generate embeddings, and persist to PostgreSQL."""
+        """Chunk the parsed document, generate embeddings, and persist to PostgreSQL."""
         chunks = self.chunking_service.chunk_document(parsed, document.id)
 
         if not chunks:
@@ -90,6 +149,11 @@ class DocumentService:
 
         texts = [c.content for c in chunks]
         embeddings = self.embedding_service.generate_embeddings(texts)
+
+        # Keep only chunks whose texts survived the embedding guard
+        filtered_texts = [t for t in texts if t.strip()]
+        text_set = set(filtered_texts)
+        chunks = [c for c in chunks if c.content.strip() in text_set]
 
         chunk_records = []
         for chunk, embedding in zip(chunks, embeddings):
@@ -114,9 +178,11 @@ class DocumentService:
     def _process(self, file_path: Path, document: Document) -> Document:
         document = self.document_repository.update_status(document, DocumentStatus.PROCESSING)
 
+        ext = self._detect_extension(file_path)
+
         try:
-            parsed = self.pdf_parser_service.parse(str(file_path))
-        except PdfParseError as exc:
+            parsed = self._parse_file(file_path, ext)
+        except (PdfParseError, SpreadsheetParseError, PptParseError, DocxParseError) as exc:
             logger.warning("Failed to process document %s: %s", document.id, exc)
             return self.document_repository.update_status(document, DocumentStatus.FAILED)
         except Exception as exc:
@@ -140,7 +206,7 @@ class DocumentService:
 
         document = self.document_repository.update_status(document, DocumentStatus.COMPLETED)
         self._delete_temp_file(file_path)
-        logger.info("Document %s processed (%d pages)", document.id, parsed.total_pages)
+        logger.info("Document %s processed (%d pages, type=%s)", document.id, parsed.total_pages, ext)
 
         return document
 
@@ -153,7 +219,7 @@ class DocumentService:
     ) -> Document:
 
         filename = os.path.basename(filename)
-        self._validate_pdf(filename, content_type)
+        ext = self._validate_file(filename, content_type)
 
         if not file_bytes:
             raise BadRequestError("File is empty")
@@ -164,10 +230,10 @@ class DocumentService:
                 f"File exceeds the maximum size of {settings.max_file_size_mb} MB"
             )
 
-        temp_path, public_id = self._save_temp_file(file_bytes, user_id)
+        temp_path, public_id = self._save_temp_file(file_bytes, user_id, ext)
 
         try:
-            storage_key, storage_url = self.storage_service.upload_pdf(
+            storage_key, storage_url = self.storage_service.upload_file(
                 file_bytes,
                 filename,
                 user_id,
@@ -179,12 +245,15 @@ class DocumentService:
                 f"File storage is temporarily unavailable: {exc}"
             ) from exc
 
+        # Determine MIME type from extension
+        mime_type = ALLOWED_EXTENSIONS.get(ext, content_type or "application/octet-stream")
+
         document = self.document_repository.create(
             user_id=user_id,
             original_filename=filename,
             storage_key=storage_key,
             storage_url=storage_url,
-            mime_type=content_type or "application/pdf",
+            mime_type=mime_type,
             file_size=len(file_bytes),
             status=DocumentStatus.UPLOADED,
         )
@@ -197,7 +266,9 @@ class DocumentService:
         if document.status not in (DocumentStatus.UPLOADED, DocumentStatus.FAILED):
             raise BadRequestError("Document has already been processed")
 
-        temp_path = self._temp_path_for_document(document)
+        # Detect extension from original filename
+        ext = Path(document.original_filename).suffix.lower() if document.original_filename else ".pdf"
+        temp_path = self._temp_path_for_document(document, ext=ext)
         if not temp_path.is_file():
             self.document_repository.update_status(document, DocumentStatus.FAILED)
             raise BadRequestError(

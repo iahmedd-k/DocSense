@@ -55,7 +55,7 @@ async function request<T>(
     throw error;
   }
 
-  return data as T;
+  return (data.data ?? data) as T;
 }
 
 export const api = {

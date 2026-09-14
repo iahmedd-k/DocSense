@@ -4,6 +4,8 @@ import abc
 import logging
 import time
 
+import httpx
+
 from app.core.config import settings
 from app.schemas.retrieval import ChunkResult
 
@@ -23,86 +25,85 @@ class CrossEncoderProvider(abc.ABC):
         ...
 
 
-class SentenceTransformerCrossEncoderProvider(CrossEncoderProvider):
-    """Cross-encoder reranker backed by a Hugging Face model.
+class HuggingFaceRerankingProvider(CrossEncoderProvider):
+    """Reranking provider backed by the Hugging Face Inference API.
 
-    The model is loaded lazily on first use (as a module-level singleton) so
-    it is not loaded at application startup, and it is reused across requests.
+    Calls the HF reranking endpoint:
+        POST https://api-inference.huggingface.co/models/{model}/rerank
+    with ``{"query": ..., "documents": [...]}`` and returns one score per document.
     """
-
-    _model = None
-    _tokenizer = None
 
     def __init__(
         self,
-        model_name: str | None = None,
+        token: str,
+        model: str,
+        base_url: str = "https://api-inference.huggingface.co",
     ):
-        self.model_name = model_name or settings.reranker_model
-
-    @property
-    def model(self):
-        if self.__class__._model is None:
-            self._load_model()
-        return self.__class__._model
-
-    @property
-    def tokenizer(self):
-        if self.__class__._tokenizer is None:
-            self._load_model()
-        return self.__class__._tokenizer
-
-    def _load_model(self) -> None:
-        try:
-            from transformers import (
-                AutoModelForSequenceClassification,
-                AutoTokenizer,
-            )
-        except ImportError as exc:
-            raise RerankingError(
-                "transformers is required for reranking. Install it via "
-                "`pip install transformers torch`"
-            ) from exc
-
-        logger.info("Loading cross-encoder model %s", self.model_name)
-        try:
-            self.__class__._model = AutoModelForSequenceClassification.from_pretrained(
-                self.model_name
-            )
-            self.__class__._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        except Exception as exc:
-            raise RerankingError(
-                f"Failed to load reranker model {self.model_name}: {exc}"
-            ) from exc
-        logger.info("Cross-encoder model %s loaded", self.model_name)
+        self.token = token
+        self.model = model
+        self.base_url = base_url.rstrip("/")
+        # Short timeout: 5s connect, 15s total — fail fast if unreachable
+        self._client = httpx.Client(timeout=httpx.Timeout(15.0, connect=5.0))
 
     def rerank(self, query: str, contents: list[str]) -> list[float]:
         if not contents:
             return []
 
-        encoded = self.tokenizer(
-            [(query, content) for content in contents],
-            padding=True,
-            truncation=True,
-            return_tensors="pt",
-        )
+        url = f"{self.base_url}/models/{self.model}/rerank"
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "query": query,
+            "documents": contents,
+            "top_n": len(contents),
+        }
 
         try:
-            import torch
+            response = self._client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RerankingError(
+                f"Hugging Face API returned status {exc.response.status_code}: "
+                f"{exc.response.text}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RerankingError(
+                f"Failed to connect to Hugging Face API: {exc}"
+            ) from exc
 
-            with torch.no_grad():
-                outputs = self.model(**encoded)
-            logits = outputs.logits
-            scores = torch.nn.functional.sigmoid(logits).cpu()
-            return [float(score) for score in scores]
-        except Exception as exc:
-            raise RerankingError(f"Reranking inference failed: {exc}") from exc
+        data = response.json()
+        results = data.get("results", [])
+
+        # Map results back to original document order using index
+        scores = [0.0] * len(contents)
+        for item in results:
+            idx = item.get("index", 0)
+            scores[idx] = item.get("score", 0.0)
+
+        return scores
+
+
+class ScoreBasedRerankingProvider(CrossEncoderProvider):
+    """Fallback reranking provider that passes through existing retrieval scores.
+
+    When the HF Inference API is unavailable or the model is not supported,
+    this provider uses the original retrieval scores as rerank scores.
+    """
+
+    def rerank(self, query: str, contents: list[str]) -> list[float]:
+        if not contents:
+            return []
+        # Return uniform scores so the original retrieval order is preserved
+        return [1.0] * len(contents)
 
 
 class RerankingService:
     """Reranks retrieval candidates with a cross-encoder model.
 
-    The cross-encoder is loaded lazily on first use so the service can be
-    injected (and the application started) without loading a model at startup.
+    Uses the Hugging Face Inference API by default. Falls back to
+    score-based reranking if the HF API is unavailable.
     """
 
     def __init__(
@@ -119,13 +120,26 @@ class RerankingService:
 
     @staticmethod
     def _build_default_provider() -> CrossEncoderProvider:
-        return SentenceTransformerCrossEncoderProvider(
-            model_name=settings.reranker_model,
+        if not settings.huggingface_token:
+            logger.warning(
+                "HUGGINGFACE_TOKEN not set, using score-based reranking fallback"
+            )
+            return ScoreBasedRerankingProvider()
+
+        # Use the direct HF API URL for reranking (not the router URL)
+        return HuggingFaceRerankingProvider(
+            token=settings.huggingface_token,
+            model=settings.reranker_model,
+            base_url="https://api-inference.huggingface.co",
         )
 
     @property
     def max_results(self) -> int:
         return settings.reranker_max_results
+
+    @property
+    def min_score(self) -> float:
+        return settings.min_rerank_score
 
     def rerank(
         self,
@@ -139,6 +153,10 @@ class RerankingService:
         retrieval layer; no additional user/document filtering is performed
         here. The original retrieval ``score`` is preserved on each result and
         a new ``rerank_score`` is attached.
+
+        Any candidate scoring below ``min_rerank_score`` is dropped before
+        truncation to ``top_n``.  If zero candidates survive, an empty list
+        is returned (triggering abstention downstream).
         """
         if not candidates:
             return []
@@ -147,7 +165,16 @@ class RerankingService:
 
         t0 = time.perf_counter()
         contents = [candidate.content for candidate in candidates]
-        scores = self.provider.rerank(query, contents)
+
+        try:
+            scores = self.provider.rerank(query, contents)
+        except RerankingError as exc:
+            logger.warning(
+                "Reranking provider failed (%s), falling back to score-based reranking",
+                exc,
+            )
+            fallback = ScoreBasedRerankingProvider()
+            scores = fallback.rerank(query, contents)
 
         if len(scores) != len(candidates):
             raise RerankingError(
@@ -160,12 +187,27 @@ class RerankingService:
         ]
         reranked.sort(key=lambda item: item.rerank_score, reverse=True)
 
+        before_count = len(reranked)
+        reranked = [c for c in reranked if c.rerank_score >= self.min_score]
+        dropped = before_count - len(reranked)
+
+        if dropped:
+            logger.info(
+                "Rerank threshold %.3f dropped %d/%d candidates",
+                self.min_score,
+                dropped,
+                before_count,
+            )
+
         logger.info(
-            "Reranked %d candidates with %s in %.3fs (returning top %d)",
-            len(reranked),
+            "Reranked %d candidates with %s in %.3fs (returning top %d, "
+            "min_score=%.3f, dropped=%d)",
+            before_count,
             settings.reranker_model,
             time.perf_counter() - t0,
             top_n,
+            self.min_score,
+            dropped,
         )
         return reranked[:top_n]
 

@@ -137,3 +137,82 @@ def test_malformed_llm_output_raises():
 
     with pytest.raises(EvidenceGraderError):
         service.grade("Q", [_chunk(1)])
+
+
+def test_dynamic_retry_on_low_confidence_insufficient(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.evidence_grader_service.settings.evidence_grading_top_k", 2
+    )
+    responses = [
+        {
+            "sufficient": False,
+            "confidence_score": 0.2,
+            "reason": "not enough",
+            "missing_information": ["details"],
+        },
+        {
+            "sufficient": True,
+            "confidence_score": 0.85,
+            "reason": "found with more chunks",
+            "missing_information": [],
+        },
+    ]
+    provider = FakeChatProvider(responses)
+    service = EvidenceGraderService(llm_service=LLMService(provider=provider))
+
+    chunks = [_chunk(i) for i in range(1, 6)]
+    verdict = service.grade("Q", chunks)
+
+    assert verdict.sufficient is True
+    assert verdict.confidence_score == pytest.approx(0.85)
+    assert len(provider.calls) == 2
+
+
+def test_no_retry_when_high_confidence(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.evidence_grader_service.settings.evidence_grading_top_k", 2
+    )
+    responses = [
+        {
+            "sufficient": False,
+            "confidence_score": 0.6,
+            "reason": "partially relevant",
+            "missing_information": ["some info"],
+        }
+    ]
+    provider = FakeChatProvider(responses)
+    service = EvidenceGraderService(llm_service=LLMService(provider=provider))
+
+    chunks = [_chunk(i) for i in range(1, 6)]
+    verdict = service.grade("Q", chunks)
+
+    assert verdict.sufficient is False
+    assert len(provider.calls) == 1
+
+
+def test_no_retry_when_no_more_chunks(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.evidence_grader_service.settings.evidence_grading_top_k", 4
+    )
+    responses = [
+        {
+            "sufficient": False,
+            "confidence_score": 0.1,
+            "reason": "not enough",
+            "missing_information": ["info"],
+        }
+    ]
+    provider = FakeChatProvider(responses)
+    service = EvidenceGraderService(llm_service=LLMService(provider=provider))
+
+    chunks = [_chunk(i) for i in range(1, 4)]
+    verdict = service.grade("Q", chunks)
+
+    assert verdict.sufficient is False
+    assert len(provider.calls) == 1
+
+
+def test_default_evidence_grading_top_k_is_8():
+    from app.core.config import settings
+
+    assert settings.evidence_grading_top_k == 8

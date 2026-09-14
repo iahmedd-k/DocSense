@@ -13,13 +13,12 @@ logger = logging.getLogger(__name__)
 GRADER_SYSTEM_PROMPT = """\
 You are an evidence sufficiency grader for a document question-answering \
 system. Given a user question and a set of retrieved evidence chunks, decide \
-whether those chunks are sufficient to answer the question.
+whether those chunks contain enough information to provide a helpful answer.
 
 Evaluate whether the evidence:
 - is relevant to the question,
-- contains enough information to answer it,
-- supports the expected answer, and
-- is missing any important information.
+- contains enough information to answer the question (partially or fully),
+- can support a reasonable answer grounded in the evidence.
 
 Respond with STRICT JSON only and no extra text, using this exact shape:
 {
@@ -30,14 +29,34 @@ Respond with STRICT JSON only and no extra text, using this exact shape:
 }
 
 Rules:
-- "sufficient" must be true ONLY when the evidence can fully answer the question.
+- "sufficient" should be true when the evidence can support a helpful answer, even if not every detail is covered.
+- Mark "sufficient" as false ONLY when the evidence is completely irrelevant or missing key information needed for any meaningful answer.
 - When insufficient, "missing_information" must list the specific information that is absent.
-- "confidence_score" reflects how confident you are in the relevance and completeness of the evidence.
+- "confidence_score" reflects how confident you are in the relevance of the evidence.
+- When in doubt, prefer sufficient — a partial answer grounded in evidence is better than no answer.
 """
 
 
 class EvidenceGraderError(Exception):
     """Raised when an evidence verdict cannot be produced from LLM output."""
+
+
+# Intent-to-top_k mapping from config
+INTENT_TOP_K_MAP = {
+    "summarization": lambda: settings.evidence_grading_top_k_summarization,
+    "qa": lambda: settings.evidence_grading_top_k_qa,
+    "comparison": lambda: settings.evidence_grading_top_k_comparison,
+    "listing": lambda: settings.evidence_grading_top_k_listing,
+    "open_ended": lambda: settings.evidence_grading_top_k_open_ended,
+}
+
+
+def get_adaptive_top_k(query_intent: str) -> int:
+    """Return the evidence grading top_k for the given query intent."""
+    getter = INTENT_TOP_K_MAP.get(query_intent)
+    if getter is not None:
+        return getter()
+    return settings.evidence_grading_top_k
 
 
 class EvidenceGraderService:
@@ -47,6 +66,13 @@ class EvidenceGraderService:
     downstream feature (e.g. FR-020) decides what to do with the verdict.
     When no evidence is retrieved the verdict is insufficient without making
     an LLM call.
+
+    Supports adaptive top_k based on query intent:
+    - summarization: 25 chunks (broad overview)
+    - qa: 10 chunks (focused)
+    - comparison: 15 chunks (moderate)
+    - listing: 15 chunks (moderate)
+    - open_ended: 12 chunks (default)
     """
 
     def __init__(
@@ -61,21 +87,27 @@ class EvidenceGraderService:
             self._llm_service = LLMService()
         return self._llm_service
 
-    @property
-    def evidence_window(self) -> int:
-        return settings.evidence_grading_top_k
-
     def grade(
         self,
         query: str,
         chunks: list[ChunkResult],
+        query_intent: str = "open_ended",
     ) -> EvidenceVerdict:
         """Return a sufficiency verdict for ``chunks`` against ``query``.
 
-        Only the top ``evidence_window`` chunks are presented to the grader.
+        Uses adaptive top_k based on ``query_intent``:
+        - summarization: sends more chunks for broader coverage
+        - qa: sends fewer, focused chunks
+        - comparison/listing: moderate coverage
+        - open_ended: default
+
+        If the first pass returns insufficient with low confidence (< 0.3),
+        retry with a larger window (up to all available chunks).
         Raises LLMError on an LLM failure.
         """
-        window = chunks[: self.evidence_window]
+        adaptive_k = get_adaptive_top_k(query_intent)
+        window = chunks[:adaptive_k]
+
         if not window:
             return EvidenceVerdict(
                 sufficient=False,
@@ -86,7 +118,34 @@ class EvidenceGraderService:
                 ],
             )
 
-        user_prompt = self._build_prompt(query, window)
+        logger.info(
+            "Evidence grading with intent=%s, adaptive_k=%d (out of %d chunks)",
+            query_intent,
+            len(window),
+            len(chunks),
+        )
+
+        verdict = self._call_grader(query, window)
+
+        # Dynamic retry: if insufficient and low confidence, try with more chunks
+        if (
+            not verdict.sufficient
+            and verdict.confidence_score is not None
+            and verdict.confidence_score < 0.3
+            and len(chunks) > len(window)
+        ):
+            logger.info(
+                "Evidence grading low confidence (%.2f), retrying with %d chunks",
+                verdict.confidence_score,
+                len(chunks),
+            )
+            verdict = self._call_grader(query, chunks)
+
+        return verdict
+
+    def _call_grader(self, query: str, chunks: list[ChunkResult]) -> EvidenceVerdict:
+        """Make a single grader LLM call and return the verdict."""
+        user_prompt = self._build_prompt(query, chunks)
         try:
             t0 = time.perf_counter()
             data = self.llm_service.complete_json(GRADER_SYSTEM_PROMPT, user_prompt)

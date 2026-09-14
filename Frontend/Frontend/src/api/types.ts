@@ -28,18 +28,6 @@ export interface Document {
   updated_at: string;
 }
 
-export interface ChunkResult {
-  chunk_id: number;
-  document_id: number;
-  content: string;
-  page_number: number;
-  page_numbers: number[];
-  content_type: string;
-  metadata: Record<string, unknown>;
-  score: number;
-  rerank_score: number | null;
-}
-
 export interface SourceCitation {
   text: string;
   document_id: number;
@@ -50,33 +38,20 @@ export interface SourceCitation {
 
 export interface RagResponse {
   query: string;
-  query_analysis: {
-    original_query: string;
-    expanded_queries: string[];
-    sub_queries: string[];
-    rationale: string;
-  };
-  evidence: ChunkResult[];
-  verdict: {
-    sufficient: boolean;
-    confidence_score: number;
-    reason: string;
-    missing_information: string[];
-  };
   answer: string | null;
   citations: SourceCitation[];
-  verification: {
-    supported: boolean;
-    citations_correct: boolean;
-    issues: { citation_text: string; claimed_document_id: number; claimed_page: number; issue: string }[];
-    explanation: string;
-  } | null;
+  sources: SourceChunk[];
   abstained: boolean;
   abstention_reason: string | null;
   abstention_suggestion: string | null;
-  corrective_queries: string[];
-  corrective_attempts: number;
-  revision_attempts: number;
+  confidence: number | null;
+}
+
+export interface SourceChunk {
+  document_id: number;
+  page_number: number;
+  content: string;
+  score: number;
 }
 
 export interface ApiError {

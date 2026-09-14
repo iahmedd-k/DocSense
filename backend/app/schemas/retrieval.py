@@ -1,3 +1,5 @@
+from typing import Self
+
 from pydantic import BaseModel, Field
 
 
@@ -66,7 +68,7 @@ class SearchApiResponse(BaseModel):
     total_results: int = Field(..., description="Number of results returned")
 
     @classmethod
-    def from_search_response(cls, search: SearchResponse) -> SearchApiResponse:
+    def from_search_response(cls, search: SearchResponse) -> Self:
         """Transform an internal SearchResponse into a clean SearchApiResponse."""
         results = [
             SearchResultItem(

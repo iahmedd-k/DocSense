@@ -149,3 +149,39 @@ def test_default_provider_uses_configured_model(monkeypatch):
     provider = service.provider
 
     assert provider.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
+
+
+def test_min_rerank_score_drops_low_scores(reranking_service, monkeypatch):
+    monkeypatch.setattr(settings, "min_rerank_score", 0.5)
+    candidates = [_chunk(1), _chunk(2), _chunk(3)]
+    # Scores: 0.1 (below), 0.8 (above), 0.3 (below)
+    reranking_service.provider.scores = [0.1, 0.8, 0.3]
+
+    results = reranking_service.rerank(query="q", candidates=candidates, top_n=5)
+
+    assert len(results) == 1
+    assert results[0].chunk_id == 2
+    assert results[0].rerank_score == pytest.approx(0.8)
+
+
+def test_min_rerank_score_returns_empty_when_all_below_threshold(reranking_service, monkeypatch):
+    monkeypatch.setattr(settings, "min_rerank_score", 0.5)
+    candidates = [_chunk(1), _chunk(2), _chunk(3)]
+    reranking_service.provider.scores = [0.01, 0.02, 0.03]
+
+    results = reranking_service.rerank(query="q", candidates=candidates, top_n=3)
+
+    assert results == []
+
+
+def test_min_rerank_score_applied_before_top_n(reranking_service, monkeypatch):
+    monkeypatch.setattr(settings, "min_rerank_score", 0.2)
+    # 5 candidates, scores 0.1, 0.9, 0.15, 0.8, 0.3
+    candidates = [_chunk(1), _chunk(2), _chunk(3), _chunk(4), _chunk(5)]
+    reranking_service.provider.scores = [0.1, 0.9, 0.15, 0.8, 0.3]
+
+    # top_n=3 but only 3 survive threshold (0.9, 0.8, 0.3)
+    results = reranking_service.rerank(query="q", candidates=candidates, top_n=3)
+
+    assert len(results) == 3
+    assert [c.chunk_id for c in results] == [2, 4, 5]

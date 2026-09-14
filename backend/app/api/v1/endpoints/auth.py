@@ -50,8 +50,16 @@ def login(
     response_model=ApiResponse[UserResponse],
     summary="Get the authenticated user's profile",
 )
-def read_me(current_user: User = Depends(get_current_user)):
-    return ApiResponse(success=True, data=current_user, message="Profile retrieved.")
+def read_me(
+    current_user: User = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service),
+) -> ApiResponse[UserResponse]:
+    user = auth_service.get_me(current_user.id)
+    return ApiResponse(
+        success=True,
+        data=UserResponse.model_validate(user),
+        message="Profile retrieved.",
+    )
 
 
 @router.post(

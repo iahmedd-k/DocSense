@@ -52,6 +52,7 @@ class CorrectiveRetrievalService:
         query: str,
         top_k: int | None = None,
         max_attempts: int | None = None,
+        query_intent: str = "open_ended",
     ) -> CorrectiveRetrievalResponse:
         """Run bounded corrective retrieval for an authenticated user.
 
@@ -67,7 +68,9 @@ class CorrectiveRetrievalService:
         attempts_used = 0
 
         evidence = self._retrieve(user_id, current_query, top_k)
-        verdict = self.evidence_grader_service.grade(current_query, evidence)
+        verdict = self.evidence_grader_service.grade(
+            current_query, evidence, query_intent=query_intent
+        )
 
         while not verdict.sufficient and attempts_used < resolved_attempts:
             refined = self.query_refinement_service.refine(query, verdict)
@@ -83,8 +86,11 @@ class CorrectiveRetrievalService:
             corrective_queries.append(current_query)
             attempts_used += 1
 
-            evidence = self._retrieve(user_id, current_query, top_k)
-            verdict = self.evidence_grader_service.grade(current_query, evidence)
+            new_evidence = self._retrieve(user_id, current_query, top_k)
+            evidence = self._merge_evidence(evidence, new_evidence, top_k)
+            verdict = self.evidence_grader_service.grade(
+                current_query, evidence, query_intent=query_intent
+            )
 
         logger.info(
             "Corrective retrieval for user %s: sufficient=%s after %d corrective "
@@ -121,3 +127,32 @@ class CorrectiveRetrievalService:
             rerank=True,
         )
         return response.results
+
+    @staticmethod
+    def _merge_evidence(
+        existing: list[ChunkResult],
+        new: list[ChunkResult],
+        top_k: int | None = None,
+    ) -> list[ChunkResult]:
+        """Merge two evidence lists by chunk_id union, keeping highest score.
+
+        Deduplicates by chunk_id, keeping the entry with the higher score.
+        Preserves order: existing chunks first, then new ones not already present.
+        Optionally truncates to top_k by score.
+        """
+        seen: dict[int, ChunkResult] = {}
+        for chunk in existing:
+            seen[chunk.chunk_id] = chunk
+        for chunk in new:
+            if chunk.chunk_id not in seen:
+                seen[chunk.chunk_id] = chunk
+            elif chunk.score > seen[chunk.chunk_id].score:
+                seen[chunk.chunk_id] = chunk
+
+        merged = list(seen.values())
+        merged.sort(key=lambda c: c.score, reverse=True)
+
+        if top_k is not None and top_k > 0:
+            merged = merged[:top_k]
+
+        return merged

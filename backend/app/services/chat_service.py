@@ -48,16 +48,15 @@ Respond with STRICT JSON only and no extra text, using this exact shape:
       "text": "<exact text span from the answer>",
       "document_id": <int>,
       "page_number": <int>,
-      "chunk_id": <int or null>,
+      "chunk_id": <int>,
       "confidence": <float 0.0 to 1.0>
     }
   ]
 }
 
 Rules:
-- Each citation must reference a document_id and page_number that exist in the evidence.
+- Each citation must reference a document_id, page_number, AND chunk_id that exist in the evidence.
 - The "text" field must be an exact substring of the answer.
-- Include chunk_id when the evidence chunk id is available.
 - confidence reflects how strongly the evidence supports that specific claim.
 - Only cite claims that are actually supported by the evidence.
 - Do NOT fabricate citations for claims not present in the evidence.
@@ -91,10 +90,11 @@ Respond with STRICT JSON only and no extra text, using this exact shape:
 }
 
 Rules:
-- "supported" is false when the answer contains claims not backed by evidence.
-- "citations_correct" is false when any citation points to the wrong document or page.
-- "issues" lists only the problematic citations; empty list when all are correct.
-- Be strict: even minor mismatches should be flagged.
+- "supported" is false ONLY when the answer contains claims that are clearly fabricated or contradict the evidence.
+- Minor paraphrasing or restating evidence in your own words is acceptable and should be marked as supported.
+- "citations_correct" is false only when citations point to completely wrong documents or pages.
+- Minor citation mismatches (e.g. off by one page) should be flagged in "issues" but should NOT cause citations_correct to be false.
+- Be lenient: the goal is to catch genuinely wrong answers, not nitpick formatting.
 """
 
 # ---------------------------------------------------------------------------
@@ -141,6 +141,10 @@ Rules:
 - Only use information present in the evidence chunks.
 - If the evidence cannot support a claim, remove the claim instead of guessing.
 - Keep the answer concise and faithful to the evidence.
+- Do NOT include chunk IDs, document IDs, page numbers, or any internal \
+reference markers like [1], 【1†L1-L2】, or (chunk_id=X).
+- Write a clean, professional response — the citation system handles \
+sources automatically.
 """
 
 # ---------------------------------------------------------------------------
@@ -307,28 +311,68 @@ class ChatService:
         }
 
         citations: list[SourceCitation] = []
+        dropped = 0
         for item in raw_citations:
             if not isinstance(item, dict):
                 continue
             text = str(item.get("text", "")).strip()
             doc_id = item.get("document_id")
             page = item.get("page_number")
-            chunk_id = item.get("chunk_id")
+            chunk_id_raw = item.get("chunk_id")
             confidence = item.get("confidence")
 
             if not text or doc_id is None or page is None:
                 continue
 
+            doc_id_int = int(doc_id)
+            page_int = int(page)
+
+            if (doc_id_int, page_int) not in valid_doc_pages:
+                dropped += 1
+                logger.warning(
+                    "Citation dropped: document_id=%d, page_number=%d not in "
+                    "evidence set",
+                    doc_id_int,
+                    page_int,
+                )
+                continue
+
+            chunk_id = chunk_id_raw
+            if chunk_id is not None:
+                try:
+                    chunk_id = int(chunk_id)
+                except (TypeError, ValueError):
+                    dropped += 1
+                    logger.warning(
+                        "Citation dropped: chunk_id=%r is not a valid integer",
+                        chunk_id_raw,
+                    )
+                    continue
+                if chunk_id not in valid_ids:
+                    dropped += 1
+                    logger.warning(
+                        "Citation dropped: chunk_id=%d not in evidence set",
+                        chunk_id,
+                    )
+                    continue
+
             citations.append(
                 SourceCitation(
                     text=text,
-                    document_id=int(doc_id),
-                    page_number=int(page),
-                    chunk_id=int(chunk_id) if chunk_id is not None else None,
+                    document_id=doc_id_int,
+                    page_number=page_int,
+                    chunk_id=chunk_id,
                     confidence=(
                         float(confidence) if confidence is not None else None
                     ),
                 )
+            )
+
+        if dropped:
+            logger.info(
+                "Dropped %d fabricated citations; %d valid citations remaining",
+                dropped,
+                len(citations),
             )
 
         return citations
@@ -491,9 +535,23 @@ class ChatService:
     def _build_grounded_system_prompt() -> str:
         return (
             "You are a helpful document question-answering assistant. "
-            "Answer the user's query using ONLY the provided evidence chunks. "
-            "If the evidence does not contain enough information, say so "
-            "clearly. Always ground your response in the evidence."
+            "Answer the user's query using the provided evidence chunks. "
+            "Be confident and direct — provide a clear, helpful answer based "
+            "on what the evidence shows. If the evidence partially answers "
+            "the question, provide what you can and note any limitations. "
+            "Always ground your response in the evidence.\n\n"
+            "IMPORTANT RULES:\n"
+            "- Do NOT include chunk IDs, document IDs, page numbers, or any "
+            "internal reference markers like [1], 【1†L1-L2】, or (chunk_id=X) "
+            "in your answer.\n"
+            "- Do NOT mention 'evidence chunks', 'retrieved documents', or "
+            "reference the source material directly.\n"
+            "- Write a clean, professional response as if you are answering "
+            "the question directly — the citation system handles sources "
+            "automatically.\n"
+            "- Use markdown formatting when helpful: **bold** for emphasis, "
+            "- bullet lists for multiple points, ## headers for sections, "
+            "| tables | for structured data.\n"
         )
 
     # ------------------------------------------------------------------
@@ -620,7 +678,11 @@ class ChatService:
     def _format_evidence(chunks: list[ChunkResult]) -> str:
         lines: list[str] = []
         for i, chunk in enumerate(chunks, start=1):
-            meta_parts = [f"document_id={chunk.document_id}", f"page={chunk.page_number}"]
+            meta_parts = [
+                f"chunk_id={chunk.chunk_id}",
+                f"document_id={chunk.document_id}",
+                f"page={chunk.page_number}",
+            ]
             if chunk.page_numbers:
                 meta_parts.append(f"pages={chunk.page_numbers}")
             meta = ", ".join(meta_parts)

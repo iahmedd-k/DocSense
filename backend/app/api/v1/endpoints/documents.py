@@ -9,9 +9,12 @@ from app.repositories.document_repository import DocumentRepository
 from app.schemas.document import DocumentResponse, DocumentStatusResponse
 from app.schemas.response import ApiResponse
 from app.services.chunking_service import ChunkingService
+from app.services.docx_parser_service import DocxParserService
 from app.services.document_service import DocumentService
 from app.services.embedding_service import EmbeddingService
 from app.services.pdf_parser_service import PdfParserService
+from app.services.ppt_parser_service import PptParserService
+from app.services.spreadsheet_parser_service import SpreadsheetParserService
 from app.services.storage_service import StorageService
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -25,6 +28,9 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
         chunking_service=ChunkingService(),
         embedding_service=EmbeddingService(),
         document_chunk_repository=DocumentChunkRepository(db),
+        spreadsheet_parser_service=SpreadsheetParserService(),
+        ppt_parser_service=PptParserService(),
+        docx_parser_service=DocxParserService(),
     )
 
 
@@ -32,7 +38,7 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
     "",
     response_model=ApiResponse[DocumentResponse],
     status_code=status.HTTP_201_CREATED,
-    summary="Upload a PDF document",
+    summary="Upload a document (PDF, CSV, Excel, PPTX, DOCX)",
 )
 def upload_document(
     file: UploadFile = File(...),

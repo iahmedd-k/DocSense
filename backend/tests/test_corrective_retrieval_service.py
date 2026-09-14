@@ -129,7 +129,8 @@ def test_successful_corrective_retrieval():
     assert response.attempts_used == 1
     assert response.final_query == "refined question"
     assert response.corrective_queries == ["refined question"]
-    assert [c.chunk_id for c in response.evidence] == [3]
+    # Evidence is now merged: chunk 1 from original + chunk 3 from refined
+    assert [c.chunk_id for c in response.evidence] == [1, 3]
 
     # Both retrievals re-ran the existing hybrid + rerank pipeline.
     assert retrieval.calls[0]["method"] == RetrievalMethod.HYBRID
@@ -171,6 +172,38 @@ def test_stops_when_refinement_returns_same_query():
     assert response.sufficient is False
     assert response.attempts_used == 0
     assert response.corrective_queries == []
+
+
+def test_merge_evidence_deduplicates_by_chunk_id():
+    existing = [_chunk(1, page=1, score=0.7), _chunk(2, page=2, score=0.8)]
+    new = [_chunk(2, page=2, score=0.9), _chunk(3, page=3, score=0.6)]
+
+    merged = CorrectiveRetrievalService._merge_evidence(existing, new)
+
+    ids = [c.chunk_id for c in merged]
+    assert ids == [2, 1, 3]
+    # chunk 2 keeps the higher score (0.9 from new)
+    assert merged[0].score == 0.9
+
+
+def test_merge_evidence_keeps_higher_score():
+    existing = [_chunk(1, page=1, score=0.9)]
+    new = [_chunk(1, page=1, score=0.5)]
+
+    merged = CorrectiveRetrievalService._merge_evidence(existing, new)
+
+    assert len(merged) == 1
+    assert merged[0].score == 0.9
+
+
+def test_merge_evidence_respects_top_k():
+    existing = [_chunk(1, page=1, score=0.5)]
+    new = [_chunk(2, page=2, score=0.9), _chunk(3, page=3, score=0.8)]
+
+    merged = CorrectiveRetrievalService._merge_evidence(existing, new, top_k=2)
+
+    assert len(merged) == 2
+    assert [c.chunk_id for c in merged] == [2, 3]
 
 
 def test_provenance_preserved_through_pipeline():

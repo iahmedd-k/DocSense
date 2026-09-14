@@ -3,12 +3,16 @@ from __future__ import annotations
 import abc
 import json
 import logging
+import time
 
 import httpx
 
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+MAX_RETRIES = 3
+RETRY_BASE_DELAY = 2.0  # seconds
 
 
 class LLMError(Exception):
@@ -70,24 +74,67 @@ class GroqChatProvider(ChatProvider):
             "temperature": temperature,
         }
 
-        try:
-            response = self._client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise LLMError(
-                f"Groq API returned status {exc.response.status_code}: "
-                f"{exc.response.text}"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise LLMError(f"Failed to connect to Groq API: {exc}") from exc
+        last_exc: Exception | None = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                response = self._client.post(url, json=payload, headers=headers)
 
-        data = response.json()
-        try:
-            return data["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LLMError(
-                f"Unexpected Groq response format: {type(data).__name__}"
-            ) from exc
+                if response.status_code == 429:
+                    retry_after = float(
+                        response.headers.get("retry-after", RETRY_BASE_DELAY * attempt)
+                    )
+                    logger.warning(
+                        "Groq rate-limited (attempt %d/%d), retrying in %.1fs",
+                        attempt,
+                        MAX_RETRIES,
+                        retry_after,
+                    )
+                    time.sleep(retry_after)
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                if exc.response.status_code == 429:
+                    retry_after = float(
+                        exc.response.headers.get("retry-after", RETRY_BASE_DELAY * attempt)
+                    )
+                    logger.warning(
+                        "Groq rate-limited (attempt %d/%d), retrying in %.1fs",
+                        attempt,
+                        MAX_RETRIES,
+                        retry_after,
+                    )
+                    time.sleep(retry_after)
+                    continue
+                raise LLMError(
+                    f"Groq API returned status {exc.response.status_code}: "
+                    f"{exc.response.text}"
+                ) from exc
+            except httpx.RequestError as exc:
+                last_exc = exc
+                delay = RETRY_BASE_DELAY * attempt
+                logger.warning(
+                    "Groq connection error (attempt %d/%d), retrying in %.1fs: %s",
+                    attempt,
+                    MAX_RETRIES,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+                continue
+
+            except (KeyError, IndexError, TypeError) as exc:
+                raise LLMError(
+                    f"Unexpected Groq response format: {type(data).__name__}"
+                ) from exc
+
+        raise LLMError(
+            f"Groq API failed after {MAX_RETRIES} attempts"
+        ) from last_exc
 
 
 class LLMService:

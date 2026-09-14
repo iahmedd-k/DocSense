@@ -49,7 +49,7 @@ def test_generate_answer_is_grounded():
     assert answer == "The budget is 100 million."
     system_prompt = provider.calls[0][0]["content"]
     assert "provided evidence chunks" in system_prompt
-    assert "(document_id=10" in provider.calls[0][-1]["content"]
+    assert "chunk_id=" in provider.calls[0][-1]["content"]
 
 
 def test_generate_answer_raises_service_unavailable_on_llm_error():
@@ -116,3 +116,106 @@ def test_revise_answer_formats_individual_issues():
     assert "claimed document=99" in user_prompt
     assert "page=5" in user_prompt
     assert "does not exist" in user_prompt
+
+
+def test_parse_citations_drops_fabricated_document_id():
+    evidence = [_chunk(chunk_id=1, document_id=10, page=2)]
+    llm_data = {
+        "citations": [
+            {
+                "text": "The budget is 100M.",
+                "document_id": 10,
+                "page_number": 2,
+                "chunk_id": 1,
+                "confidence": 0.9,
+            },
+            {
+                "text": "fabricated claim",
+                "document_id": 999,
+                "page_number": 99,
+                "chunk_id": None,
+                "confidence": 0.5,
+            },
+        ]
+    }
+
+    citations = ChatService._parse_citations(llm_data, evidence)
+
+    assert len(citations) == 1
+    assert citations[0].document_id == 10
+    assert citations[0].page_number == 2
+    assert citations[0].chunk_id == 1
+
+
+def test_parse_citations_drops_fabricated_chunk_id():
+    evidence = [_chunk(chunk_id=1, document_id=10, page=2)]
+    llm_data = {
+        "citations": [
+            {
+                "text": "The budget is 100M.",
+                "document_id": 10,
+                "page_number": 2,
+                "chunk_id": 999,
+                "confidence": 0.9,
+            },
+        ]
+    }
+
+    citations = ChatService._parse_citations(llm_data, evidence)
+
+    assert len(citations) == 0
+
+
+def test_parse_citations_returns_empty_when_all_fabricated():
+    evidence = [_chunk(chunk_id=1, document_id=10, page=2)]
+    llm_data = {
+        "citations": [
+            {
+                "text": "fake claim",
+                "document_id": 999,
+                "page_number": 99,
+                "chunk_id": None,
+                "confidence": 0.5,
+            },
+        ]
+    }
+
+    citations = ChatService._parse_citations(llm_data, evidence)
+
+    assert citations == []
+
+
+def test_format_evidence_includes_chunk_id():
+    chunks = [_chunk(chunk_id=42, document_id=5, page=1)]
+    result = ChatService._format_evidence(chunks)
+
+    assert "chunk_id=42" in result
+    assert "document_id=5" in result
+    assert "page=1" in result
+
+
+def test_parse_citations_validates_chunk_id_in_evidence():
+    evidence = [_chunk(chunk_id=1, document_id=10, page=2)]
+    llm_data = {
+        "citations": [
+            {
+                "text": "The budget is 100M.",
+                "document_id": 10,
+                "page_number": 2,
+                "chunk_id": 1,
+                "confidence": 0.9,
+            },
+            {
+                "text": "Other claim",
+                "document_id": 10,
+                "page_number": 2,
+                "chunk_id": 99,
+                "confidence": 0.7,
+            },
+        ]
+    }
+
+    citations = ChatService._parse_citations(llm_data, evidence)
+
+    assert len(citations) == 1
+    assert citations[0].chunk_id == 1

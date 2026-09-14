@@ -4,7 +4,15 @@ import logging
 import time
 
 from app.core.config import settings
-from app.schemas.query_analysis import QueryAnalysis
+from app.schemas.query_analysis import (
+    QUERY_INTENT_COMPARISON,
+    QUERY_INTENT_LISTING,
+    QUERY_INTENT_OPEN_ENDED,
+    QUERY_INTENT_QA,
+    QUERY_INTENT_SUMMARIZATION,
+    VALID_INTENTS,
+    QueryAnalysis,
+)
 from app.services.llm_service import LLMError, LLMService
 
 logger = logging.getLogger(__name__)
@@ -26,6 +34,7 @@ only and no extra text, using this exact shape:
   "expanded_queries": ["<variant 1>", "<variant 2>"],
   "needs_decomposition": <true or false>,
   "sub_queries": ["<sub-question 1>", "<sub-question 2>"],
+  "query_intent": "<intent>",
   "rationale": "<brief string>"
 }
 
@@ -33,6 +42,13 @@ Rules:
 - Do not fabricate expansion or decomposition when not required; return empty lists.
 - Keep every variant/sub-question faithful to the original question.
 - Return searchable queries, never a question addressed to an assistant.
+
+query_intent must be one of:
+- "summarization": user wants a summary, overview, or general understanding of the document
+- "qa": user asks a specific factual question with a clear answer
+- "comparison": user compares multiple things (methods, results, approaches)
+- "listing": user wants a list of items, findings, recommendations, etc.
+- "open_ended": general exploration, no clear intent above
 """
 
 
@@ -102,8 +118,13 @@ class QueryAnalysisService:
         if data.get("needs_decomposition") is False:
             sub_queries = []
 
+        # Extract and validate query intent
+        raw_intent = str(data.get("query_intent") or "").strip().lower()
+        query_intent = raw_intent if raw_intent in VALID_INTENTS else QUERY_INTENT_OPEN_ENDED
+
         return QueryAnalysis(
             original_query=query,
+            query_intent=query_intent,
             expanded_queries=expanded,
             sub_queries=sub_queries,
             rationale=str(data.get("rationale") or ""),

@@ -29,14 +29,14 @@ def _ensure_cloudinary_config() -> None:
 
 class StorageService:
 
-    def upload_pdf(
+    def upload_file(
         self,
         file_bytes: bytes,
         filename: str,
         user_id: int,
         public_id: str | None = None,
     ) -> tuple[str, str]:
-        """Upload a PDF to Cloudinary and return (public_id, secure_url)."""
+        """Upload any file to Cloudinary and return (public_id, secure_url)."""
 
         if not settings.cloudinary_cloud_name:
             raise StorageError("Cloudinary is not configured")
@@ -56,6 +56,17 @@ class StorageService:
             ) from exc
 
         return result["public_id"], result["secure_url"]
+
+    # Keep backward compatibility
+    def upload_pdf(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        user_id: int,
+        public_id: str | None = None,
+    ) -> tuple[str, str]:
+        """Upload a PDF to Cloudinary (backward compatible alias)."""
+        return self.upload_file(file_bytes, filename, user_id, public_id)
 
     def delete_file(self, public_id: str) -> None:
         """Delete a file from Cloudinary by its public_id."""
