@@ -121,12 +121,14 @@ class DocumentChunkRepository:
         user_id: int,
         query_vector: list[float],
         top_k: int,
+        document_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Return the top-K chunks closest to ``query_vector`` for a user.
 
         Uses pgvector cosine distance (``<=>``); results are ordered by
         ascending distance (most similar first). The ``user_id`` filter
-        guarantees a user can only retrieve their own chunks.
+        guarantees a user can only retrieve their own chunks. Optionally
+        filter to specific documents via ``document_ids``.
         """
         distance = DocumentChunk.embedding.cosine_distance(query_vector)
         statement = (
@@ -135,9 +137,14 @@ class DocumentChunkRepository:
                 distance.label("distance"),
             )
             .where(DocumentChunk.user_id == user_id)
-            .order_by("distance")
-            .limit(top_k)
         )
+
+        if document_ids:
+            statement = statement.where(
+                DocumentChunk.document_id.in_(document_ids),
+            )
+
+        statement = statement.order_by("distance").limit(top_k)
 
         rows = self.db.execute(statement).all()
         return [
@@ -151,12 +158,14 @@ class DocumentChunkRepository:
         query: str,
         top_k: int,
         language: str = "english",
+        document_ids: list[int] | None = None,
     ) -> list[RetrievedChunk]:
         """Return the top-K chunks matching ``query`` via PostgreSQL full-text search.
 
         Uses ``websearch_to_tsquery`` with the configured language to parse a
         user query, filters strictly to the given ``user_id`` (ownership), and
-        ranks results with ``ts_rank`` descending.
+        ranks results with ``ts_rank`` descending. Optionally filter to
+        specific documents via ``document_ids``.
         """
         search_col = sa.column("search_vector", type_=sa.dialects.postgresql.TSVECTOR)
         tsquery = sa.func.websearch_to_tsquery(language, query)
@@ -170,9 +179,14 @@ class DocumentChunkRepository:
             )
             .where(DocumentChunk.user_id == user_id)
             .where(search_col.op("@@")(tsquery))
-            .order_by(sa.desc("rank"))
-            .limit(top_k)
         )
+
+        if document_ids:
+            statement = statement.where(
+                DocumentChunk.document_id.in_(document_ids),
+            )
+
+        statement = statement.order_by(sa.desc("rank")).limit(top_k)
 
         rows = self.db.execute(statement).all()
         return [

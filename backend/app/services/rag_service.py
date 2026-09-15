@@ -47,8 +47,13 @@ class RAGService:
         user_id: int,
         query: str,
         top_k: int | None = None,
+        document_ids: list[int] | None = None,
     ) -> RagResponse:
-        """Run the lean pipeline and return a grounded response."""
+        """Run the lean pipeline and return a grounded response.
+
+        When ``document_ids`` is provided, retrieval is scoped to those
+        documents only.
+        """
         t0 = time.perf_counter()
 
         # Step 1: Query analysis (1 LLM call)
@@ -59,7 +64,7 @@ class RAGService:
 
         # Step 2: Retrieval (0 LLM calls)
         t_step = time.perf_counter()
-        evidence = self._retrieve_merged(user_id, query, analysis, top_k)
+        evidence = self._retrieve_merged(user_id, query, analysis, top_k, document_ids)
         t_retrieval = time.perf_counter() - t_step
         logger.info("RAG [user=%s] retrieval: %.3fs (%d chunks)", user_id, t_retrieval, len(evidence))
 
@@ -129,6 +134,7 @@ class RAGService:
         query: str,
         analysis: QueryAnalysis,
         top_k: int | None,
+        document_ids: list[int] | None,
     ) -> list[ChunkResult]:
         """Run hybrid retrieval per query and fuse with RRF."""
         retrieval_queries = self._retrieval_queries(query, analysis)
@@ -141,6 +147,7 @@ class RAGService:
                 method=RetrievalMethod.HYBRID,
                 top_k=top_k,
                 rerank=True,
+                document_ids=document_ids,
             )
             if response.results:
                 lists.append(response.results)

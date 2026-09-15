@@ -83,6 +83,7 @@ def chat(
     conversation_service = ConversationService(db)
 
     conversation_id = request.conversation_id
+    document_ids = request.document_ids
 
     if conversation_id is not None:
         conversation_service.save_user_message(
@@ -101,10 +102,17 @@ def chat(
                 conversation_id, current_user.id, request.query,
             )
 
+        conversation = conversation_service.conversation_repo.get_by_id_and_user(
+            conversation_id, current_user.id,
+        )
+        if conversation and conversation.document_ids:
+            document_ids = conversation.document_ids
+
     rag_response = rag_service.answer(
         user_id=current_user.id,
         query=request.query,
         top_k=request.top_k,
+        document_ids=document_ids,
     )
 
     if conversation_id is not None:

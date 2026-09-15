@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -26,6 +27,12 @@ class Conversation(Base):
         String(255),
         nullable=False,
         default="New Conversation",
+    )
+
+    document_ids: Mapped[list | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        default=None,
     )
 
     created_at: Mapped[datetime] = mapped_column(

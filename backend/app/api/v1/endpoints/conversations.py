@@ -38,6 +38,7 @@ def create_conversation(
     result = service.create_conversation(
         user_id=current_user.id,
         title=request.title,
+        document_ids=request.document_ids,
     )
     return ApiResponse(success=True, data=result, message="Conversation created")
 

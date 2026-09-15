@@ -42,6 +42,7 @@ class VectorRetrievalService:
         user_id: int,
         query: str,
         top_k: int,
+        document_ids: list[int] | None = None,
     ) -> list[ChunkResult]:
         t0 = time.perf_counter()
         query_vector = self.embedding_service.generate_embedding(query)
@@ -52,6 +53,7 @@ class VectorRetrievalService:
             user_id=user_id,
             query_vector=query_vector,
             top_k=top_k,
+            document_ids=document_ids,
         )
         logger.info("Vector retrieval DB search: %.3fs (%d results)", time.perf_counter() - t0, len(results))
 
@@ -94,6 +96,7 @@ class LexicalRetrievalService:
         user_id: int,
         query: str,
         top_k: int,
+        document_ids: list[int] | None = None,
     ) -> list[ChunkResult]:
         t0 = time.perf_counter()
         results = self.chunk_repository.search_by_text(
@@ -101,6 +104,7 @@ class LexicalRetrievalService:
             query=query,
             top_k=top_k,
             language=self.language,
+            document_ids=document_ids,
         )
         logger.info("Lexical retrieval DB search: %.3fs (%d results)", time.perf_counter() - t0, len(results))
 
@@ -166,25 +170,27 @@ class RetrievalService:
         method: str,
         top_k: int | None = None,
         rerank: bool = False,
+        document_ids: list[int] | None = None,
     ) -> SearchResponse:
         """Run a single-method retrieval and shape the response.
 
         When ``rerank`` is enabled, additional candidates are fetched and
         re-scored by the cross-encoder reranker before the final top-K is
-        returned.
+        returned. Optionally scope to specific documents via ``document_ids``.
         """
         top_k = self._resolve_top_k(top_k)
 
         if rerank:
-            results = self._search_with_reranking(user_id, query, method, top_k)
+            results = self._search_with_reranking(user_id, query, method, top_k, document_ids)
         else:
-            results = self._retrieve(user_id, query, method, top_k)
+            results = self._retrieve(user_id, query, method, top_k, document_ids)
 
         logger.info(
-            "Retrieved %d results for user %s using method=%s",
+            "Retrieved %d results for user %s using method=%s doc_ids=%s",
             len(results),
             user_id,
             method,
+            document_ids,
         )
         return SearchResponse(query=query, results=results)
 
@@ -194,15 +200,16 @@ class RetrievalService:
         query: str,
         method: str,
         top_k: int,
+        document_ids: list[int] | None = None,
     ) -> list[ChunkResult]:
         if method == RetrievalMethod.LEXICAL:
-            return self.lexical_retrieval_service.retrieve(user_id, query, top_k)
+            return self.lexical_retrieval_service.retrieve(user_id, query, top_k, document_ids)
         elif method == RetrievalMethod.VECTOR:
-            return self.vector_retrieval_service.retrieve(user_id, query, top_k)
+            return self.vector_retrieval_service.retrieve(user_id, query, top_k, document_ids)
         elif method == RetrievalMethod.HYBRID:
             if self.rrf_service is None:
                 raise ValueError("Hybrid retrieval requires an RRF service")
-            return self.rrf_service.search(user_id, query, top_k)
+            return self.rrf_service.search(user_id, query, top_k, document_ids)
         else:
             raise ValueError(f"Unsupported retrieval method: {method}")
 
@@ -212,12 +219,13 @@ class RetrievalService:
         query: str,
         method: str,
         top_k: int,
+        document_ids: list[int] | None = None,
     ) -> list[ChunkResult]:
         if self.reranking_service is None:
             raise ValueError("Reranking requires a reranking service")
 
         candidate_count = self._candidate_count_for_rerank(top_k)
-        candidates = self._retrieve(user_id, query, method, candidate_count)
+        candidates = self._retrieve(user_id, query, method, candidate_count, document_ids)
 
         return self.reranking_service.rerank(query, candidates, top_n=top_k)
 

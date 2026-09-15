@@ -13,10 +13,12 @@ class ConversationRepository:
         self,
         user_id: int,
         title: str = "New Conversation",
+        document_ids: list[int] | None = None,
     ) -> Conversation:
         conversation = Conversation(
             user_id=user_id,
             title=title,
+            document_ids=document_ids,
         )
 
         self.db.add(conversation)

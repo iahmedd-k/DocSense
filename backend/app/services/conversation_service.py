@@ -41,9 +41,12 @@ class ConversationService:
         self,
         user_id: int,
         title: str = "New Conversation",
+        document_ids: list[int] | None = None,
     ) -> ConversationResponse:
-        conversation = self.conversation_repo.create(user_id=user_id, title=title)
-        logger.info("Created conversation %s for user %s", conversation.id, user_id)
+        conversation = self.conversation_repo.create(
+            user_id=user_id, title=title, document_ids=document_ids,
+        )
+        logger.info("Created conversation %s for user %s (docs=%s)", conversation.id, user_id, document_ids)
         return ConversationResponse.model_validate(conversation)
 
     def get_conversation(

@@ -21,6 +21,10 @@ class RagRequest(BaseModel):
         default=None,
         description="Optional conversation ID to continue a conversation",
     )
+    document_ids: list[int] | None = Field(
+        default=None,
+        description="Optional list of document IDs to scope retrieval to",
+    )
     top_k: int | None = Field(
         default=None,
         ge=1,

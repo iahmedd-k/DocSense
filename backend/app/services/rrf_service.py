@@ -41,23 +41,26 @@ class RRFService:
         user_id: int,
         query: str,
         top_k: int,
+        document_ids: list[int] | None = None,
     ) -> list[ChunkResult]:
         """Run both retrievals for a user and fuse them with RRF.
 
         Ownership filtering is enforced by each underlying retrieval method.
+        Optionally scope to specific documents via ``document_ids``.
         """
-        vector_results = self.vector_retrieval_service.retrieve(user_id, query, top_k)
-        lexical_results = self.lexical_retrieval_service.retrieve(user_id, query, top_k)
+        vector_results = self.vector_retrieval_service.retrieve(user_id, query, top_k, document_ids)
+        lexical_results = self.lexical_retrieval_service.retrieve(user_id, query, top_k, document_ids)
 
         fused = self.fuse(vector_results, lexical_results)
 
         logger.info(
-            "Fused %d vector + %d lexical results into %d for user %s (k=%d)",
+            "Fused %d vector + %d lexical results into %d for user %s (k=%d, doc_ids=%s)",
             len(vector_results),
             len(lexical_results),
             len(fused),
             user_id,
             self.k,
+            document_ids,
         )
         return fused
 

@@ -9,12 +9,17 @@ class ConversationCreateRequest(BaseModel):
         max_length=255,
         description="Conversation title",
     )
+    document_ids: list[int] | None = Field(
+        default=None,
+        description="Optional list of document IDs to scope this conversation to",
+    )
 
 
 class ConversationResponse(BaseModel):
     id: int
     user_id: int
     title: str
+    document_ids: list[int] | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -48,6 +53,7 @@ class ConversationDetailResponse(BaseModel):
     id: int
     user_id: int
     title: str
+    document_ids: list[int] | None = None
     created_at: datetime
     updated_at: datetime
     messages: list[MessageResponse] = Field(default_factory=list)
