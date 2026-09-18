@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import { Database, Mail, Lock, User, Eye, EyeOff, AlertCircle, ArrowRight, Loader2, CheckCircle2 } from "lucide-react";
+import { Database, Mail, Lock, User, Eye, EyeOff, AlertCircle, ArrowRight, Loader2, CheckCircle2, Github, Chrome, MessageSquare, Check } from "lucide-react";
 
 function AuthField({ icon: Icon, type = "text", onEnter, ...props }: any) {
   const [show, setShow] = useState(false);
@@ -34,6 +34,62 @@ function BrandMark({ tone = "dark" }: { tone?: string }) {
         <Database className="w-4 h-4 text-white" />
       </div>
       <span className={`text-[15px] font-semibold tracking-tight ${isDark ? "text-white" : "text-slate-900"}`}>DocSense</span>
+    </div>
+  );
+}
+
+function PasswordStrength({ password }: { password: string }) {
+  const [strength, setStrength] = useState(0);
+  const [label, setLabel] = useState("");
+  const [color, setColor] = useState("bg-slate-200");
+
+  useEffect(() => {
+    if (!password) {
+      setStrength(0);
+      setLabel("");
+      setColor("bg-slate-200");
+      return;
+    }
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^A-Za-z0-9]/.test(password)) score++;
+    
+    setStrength(Math.min(score, 4) * 25);
+    
+    switch (score) {
+      case 0:
+      case 1:
+        setLabel("Weak");
+        setColor("bg-rose-500");
+        break;
+      case 2:
+        setLabel("Fair");
+        setColor("bg-amber-500");
+        break;
+      case 3:
+        setLabel("Good");
+        setColor("bg-lime-500");
+        break;
+      case 4:
+        setLabel("Strong");
+        setColor("bg-emerald-500");
+        break;
+      default:
+        setLabel("");
+        setColor("bg-slate-200");
+    }
+  }, [password]);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+        <div className={`h-full transition-all duration-300 ease-out ${color}`} style={{ width: `${strength}%` }} />
+      </div>
+      <p className={`text-[11px] font-medium ${color.replace("bg-", "text-")}`}>
+        {label ? `Password strength: ${label}` : "Password must be at least 8 characters"}
+      </p>
     </div>
   );
 }
