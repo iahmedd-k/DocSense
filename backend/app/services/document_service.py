@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -321,6 +322,13 @@ class DocumentService:
 
         return document
 
+    @staticmethod
+    def _document_age_seconds(created_at: datetime | None) -> float:
+        if not created_at:
+            return 0.0
+        now = datetime.now(timezone.utc) if created_at.tzinfo is not None else datetime.utcnow()
+        return (now - created_at).total_seconds()
+
     def get_document_status(
         self,
         user_id: int,
@@ -328,8 +336,7 @@ class DocumentService:
     ) -> DocumentStatusResponse:
         document = self.get_document(user_id, document_id)
         if document.status in (DocumentStatus.PROCESSING, DocumentStatus.UPLOADED):
-            age = (datetime.utcnow() - document.created_at).total_seconds() if document.created_at else 0
-            if age > 300:
+            if self._document_age_seconds(document.created_at) > 300:
                 document = self.document_repository.update_status(document, DocumentStatus.FAILED)
 
         return DocumentStatusResponse(
@@ -339,11 +346,9 @@ class DocumentService:
 
     def list_documents(self, user_id: int) -> list[Document]:
         docs = self.document_repository.list_by_user(user_id)
-        now = datetime.utcnow()
         for doc in docs:
             if doc.status in (DocumentStatus.PROCESSING, DocumentStatus.UPLOADED):
-                age = (now - doc.created_at).total_seconds() if doc.created_at else 0
-                if age > 300:
+                if self._document_age_seconds(doc.created_at) > 300:
                     self.document_repository.update_status(doc, DocumentStatus.FAILED)
         return docs
 
