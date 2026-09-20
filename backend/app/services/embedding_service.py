@@ -42,12 +42,7 @@ class LocalEmbeddingProvider(EmbeddingProvider):
 
 
 class HuggingFaceEmbeddingProvider(EmbeddingProvider):
-    """Embedding provider backed by the Hugging Face Inference API.
-
-    Calls the HF Inference API:
-        POST https://api-inference.huggingface.co/models/{model}
-    with ``{"inputs": [text, ...]}`` and returns one vector per text.
-    """
+    """Embedding provider backed by Hugging Face Inference & Router APIs."""
 
     def __init__(
         self,
@@ -64,29 +59,50 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
         if not texts:
             return []
 
-        url = f"{self.base_url}/models/{self.model}"
         headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "inputs": texts,
-        }
 
-        try:
-            response = self._client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise EmbeddingError(
-                f"Hugging Face API returned status {exc.response.status_code}: "
-                f"{exc.response.text}"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise EmbeddingError(
-                f"Failed to connect to Hugging Face API: {exc}"
-            ) from exc
+        endpoints = []
+        if self.base_url.endswith("/v1") or "/v1" in self.base_url:
+            endpoints.append((
+                f"{self.base_url}/embeddings",
+                {"model": self.model, "input": texts},
+            ))
+            endpoints.append((
+                f"https://router.huggingface.co/hf-inference/models/{self.model}",
+                {"inputs": texts},
+            ))
+            endpoints.append((
+                f"https://api-inference.huggingface.co/models/{self.model}",
+                {"inputs": texts},
+            ))
+        else:
+            endpoints.append((
+                f"{self.base_url}/models/{self.model}",
+                {"inputs": texts},
+            ))
+            endpoints.append((
+                f"https://router.huggingface.co/hf-inference/models/{self.model}",
+                {"inputs": texts},
+            ))
+            endpoints.append((
+                f"https://api-inference.huggingface.co/models/{self.model}",
+                {"inputs": texts},
+            ))
 
-        return _parse_embeddings_response(response.json())
+        last_error = None
+        for url, payload in endpoints:
+            try:
+                response = self._client.post(url, json=payload, headers=headers)
+                if response.status_code == 200:
+                    return _parse_embeddings_response(response.json())
+                last_error = f"Endpoint {url} returned HTTP {response.status_code}: {response.text}"
+            except Exception as exc:
+                last_error = f"Endpoint {url} error: {exc}"
+
+        raise EmbeddingError(f"Hugging Face API failed across endpoints: {last_error}")
 
 
 class EmbeddingService:

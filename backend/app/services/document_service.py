@@ -327,6 +327,10 @@ class DocumentService:
         document_id: int,
     ) -> DocumentStatusResponse:
         document = self.get_document(user_id, document_id)
+        if document.status in (DocumentStatus.PROCESSING, DocumentStatus.UPLOADED):
+            age = (datetime.utcnow() - document.created_at).total_seconds() if document.created_at else 0
+            if age > 300:
+                document = self.document_repository.update_status(document, DocumentStatus.FAILED)
 
         return DocumentStatusResponse(
             document_id=document.id,
@@ -334,7 +338,14 @@ class DocumentService:
         )
 
     def list_documents(self, user_id: int) -> list[Document]:
-        return self.document_repository.list_by_user(user_id)
+        docs = self.document_repository.list_by_user(user_id)
+        now = datetime.utcnow()
+        for doc in docs:
+            if doc.status in (DocumentStatus.PROCESSING, DocumentStatus.UPLOADED):
+                age = (now - doc.created_at).total_seconds() if doc.created_at else 0
+                if age > 300:
+                    self.document_repository.update_status(doc, DocumentStatus.FAILED)
+        return docs
 
     def delete_document(self, user_id: int, document_id: int) -> Document:
         """Delete a document owned by ``user_id`` and its associated data.
