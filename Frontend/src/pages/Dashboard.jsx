@@ -1678,15 +1678,15 @@ function UsageView({ files, plan, usageData }) {
   const storagePct = Math.min(100, (totalStorage / storageLimitBytes) * 100);
 
   return (
-    <div className="px-8 py-6 overflow-y-auto flex-1">
-      <div className="flex items-center justify-between mb-5 border border-indigo-100 rounded-xl px-4 py-3 bg-indigo-50/40">
+    <div className="px-4 sm:px-8 py-5 sm:py-6 overflow-y-auto flex-1">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 mb-5 border border-indigo-100 rounded-xl px-4 py-3 bg-indigo-50/40">
         <div className="flex items-center gap-2 text-[13px]">
-          <Sparkles className="w-4 h-4 text-indigo-600" />
+          <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
           <span className="text-stone-700 font-medium">
             Demo Tier <span className="text-stone-400 font-normal">· Live Demo Environment</span>
           </span>
         </div>
-        <div className="text-[12px] text-stone-600 font-medium bg-white border border-stone-200 rounded-md px-2.5 py-1">
+        <div className="text-[12px] text-stone-600 font-medium bg-white border border-stone-200 rounded-md px-2.5 py-1 shrink-0">
           {totalQueries} / {queryQuota} queries used
         </div>
       </div>
@@ -1729,7 +1729,7 @@ function UsageView({ files, plan, usageData }) {
 
       <div className="rounded-xl border border-stone-200 bg-white p-4.5 text-[13px] text-stone-600 leading-relaxed shadow-2xs">
         <div className="flex items-center gap-2 font-semibold text-stone-900 mb-1.5">
-          <Info className="w-4 h-4 text-indigo-600" />
+          <Info className="w-4 h-4 text-indigo-600 shrink-0" />
           Live Demo Quota & Architecture
         </div>
         <p className="text-stone-500 text-[12.5px] leading-relaxed">
@@ -1790,6 +1790,14 @@ function RagFileManager({
     },
     [setFiles, refreshUsage, refreshFiles]
   );
+
+  useEffect(() => {
+    files.forEach((f) => {
+      if (f.status === "processing" || f.status === "uploaded") {
+        pollDocumentStatus(f.id);
+      }
+    });
+  }, [files, pollDocumentStatus]);
 
   const addFiles = useCallback(
     async (fileList) => {
@@ -1899,11 +1907,11 @@ function RagFileManager({
     <div className={`h-full w-full bg-white text-stone-900 flex transition-opacity duration-200 ${mounted ? "opacity-100" : "opacity-0"}`}>
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0 relative">
-        <header className="px-8 pt-6 pb-0 border-b border-stone-100 shrink-0">
+        <header className="px-4 sm:px-8 pt-5 sm:pt-6 pb-0 border-b border-stone-100 shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-[18px] font-semibold tracking-tight">Knowledge Sources</h1>
-              <p className="text-[13px] text-stone-500 mt-0.5 mb-4">
+              <h1 className="text-[17px] sm:text-[18px] font-semibold tracking-tight">Knowledge Sources</h1>
+              <p className="text-[12.5px] sm:text-[13px] text-stone-500 mt-0.5 mb-3 sm:mb-4">
                 Upload documents to extract, OCR, index with pgvector + FTS, and enable verified retrieval.
               </p>
             </div>
@@ -1930,7 +1938,7 @@ function RagFileManager({
           <UsageView files={files} plan={plan} usageData={usageData} />
         ) : (
           <>
-            <div className="px-8 py-5 shrink-0">
+            <div className="px-4 sm:px-8 py-4 sm:py-5 shrink-0">
               {uploadLimitReached ? (
                 <UpgradeLockBar
                   icon={UploadCloud}
@@ -1945,7 +1953,7 @@ function RagFileManager({
                   }}
                   onDragLeave={() => setIsDragging(false)}
                   onDrop={onDrop}
-                  className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center py-7 transition-colors ${
+                  className={`rounded-xl border-2 border-dashed flex flex-col items-center justify-center py-6 sm:py-7 px-4 text-center transition-colors ${
                     isDragging ? "border-indigo-400 bg-indigo-50/60" : "border-stone-200 hover:border-stone-300"
                   }`}
                 >
@@ -1957,17 +1965,17 @@ function RagFileManager({
                     className="hidden"
                     onChange={(e) => e.target.files?.length && addFiles(e.target.files)}
                   />
-                  <div className="w-11 h-11 rounded-full bg-indigo-50 flex items-center justify-center mb-3">
+                  <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-indigo-50 flex items-center justify-center mb-3 shrink-0">
                     {uploading ? (
                       <Loader2 className="w-5 h-5 text-indigo-500 animate-spin" />
                     ) : (
                       <UploadCloud className="w-5 h-5 text-indigo-500" />
                     )}
                   </div>
-                  <p className="text-[14px] font-medium text-stone-700">
+                  <p className="text-[13.5px] sm:text-[14px] font-medium text-stone-700">
                     {uploading ? "Uploading and indexing files…" : "Drop files to add to the knowledge base"}
                   </p>
-                  <p className="text-[12.5px] text-stone-400 mt-1 mb-4">PDF, DOCX, CSV, Excel, or JSON · up to 10 MB each</p>
+                  <p className="text-[12px] sm:text-[12.5px] text-stone-400 mt-1 mb-3 sm:mb-4">PDF, DOCX, CSV, Excel, or JSON · up to 10 MB each</p>
 
                   <button
                     onClick={() => inputRef.current?.click()}
@@ -1980,8 +1988,8 @@ function RagFileManager({
               )}
             </div>
 
-            <div className="px-8 pb-3 flex items-center gap-2 shrink-0">
-              <div className="flex items-center gap-2 bg-stone-100 rounded-lg px-3 py-2 w-64">
+            <div className="px-4 sm:px-8 pb-3 flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 bg-stone-100 rounded-lg px-3 py-1.5 sm:py-2 flex-1 sm:w-64 min-w-[160px]">
                 <Search className="w-4 h-4 text-stone-400 shrink-0" />
                 <input
                   value={query}
@@ -1990,23 +1998,25 @@ function RagFileManager({
                   className="bg-transparent text-[13px] outline-none w-full placeholder:text-stone-400"
                 />
               </div>
-              {["all", "indexed", "processing", "failed"].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStatusFilter(s)}
-                  className={`text-[12.5px] font-medium px-3 py-1.5 rounded-full border transition-colors cursor-pointer ${
-                    statusFilter === s ? "bg-stone-900 text-white border-stone-900" : "border-stone-200 text-stone-500 hover:bg-stone-50"
-                  }`}
-                >
-                  {s === "all" ? "All" : STATUS_CONFIG[s]?.label || s}
-                  {s !== "all" && statusCounts[s] ? ` (${statusCounts[s]})` : ""}
-                </button>
-              ))}
+              <div className="flex items-center gap-1.5 overflow-x-auto max-w-full pb-1 sm:pb-0 shrink-0">
+                {["all", "indexed", "processing", "failed"].map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStatusFilter(s)}
+                    className={`text-[12px] sm:text-[12.5px] font-medium px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full border transition-colors cursor-pointer whitespace-nowrap ${
+                      statusFilter === s ? "bg-stone-900 text-white border-stone-900" : "border-stone-200 text-stone-500 hover:bg-stone-50"
+                    }`}
+                  >
+                    {s === "all" ? "All" : STATUS_CONFIG[s]?.label || s}
+                    {s !== "all" && statusCounts[s] ? ` (${statusCounts[s]})` : ""}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-8 pb-24 relative">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-8 pb-24 relative">
               <div className="border border-stone-200 rounded-xl overflow-hidden bg-white">
-                <div className="flex items-center gap-3 pl-4 pr-3 py-2 bg-stone-50 text-[11px] font-medium text-stone-500 uppercase tracking-wide border-b border-stone-100">
+                <div className="hidden md:flex items-center gap-3 pl-4 pr-3 py-2 bg-stone-50 text-[11px] font-medium text-stone-500 uppercase tracking-wide border-b border-stone-100">
                   <input
                     type="checkbox"
                     checked={filtered.length > 0 && filtered.every((f) => selectedIds.has(f.id))}
