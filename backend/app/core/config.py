@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     cloudinary_api_secret: str = ""
     max_file_size_mb: int = 10
 
+    supabase_url: str = ""
+    supabase_secret_key: str = ""
+    supabase_bucket: str = "documents"
+
     local_temp_dir: str = "./tmp"
 
     chunk_size: int = 400  # token count (not characters)
