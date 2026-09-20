@@ -1,25 +1,17 @@
 import { SignIn } from "@clerk/react";
-import { Database } from "lucide-react";
+import { BrandLogo } from "../components/BrandLogo";
 
 export default function LoginPage() {
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-stone-50 px-4 py-12 font-[system-ui]">
-      <div className="w-full max-w-[420px] flex flex-col items-center">
+    <div className="min-h-screen w-full flex flex-col items-center justify-center bg-stone-50/70 p-4 font-[system-ui]">
+      <div className="w-full max-w-[400px] flex flex-col items-center">
         {/* Brand Header */}
-        <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-11 h-11 rounded-xl bg-indigo-600 shadow-md shadow-indigo-500/20 flex items-center justify-center mb-3">
-            <Database className="w-5 h-5 text-white" />
-          </div>
-          <h1 className="text-[22px] font-bold text-stone-900 tracking-tight">
-            DocSense
-          </h1>
-          <p className="text-[13px] text-stone-500 mt-1 max-w-[320px]">
-            Sign in to your document intelligence workspace
-          </p>
+        <div className="mb-6 flex flex-col items-center">
+          <BrandLogo size={42} showText={true} />
         </div>
 
         {/* Auth Card */}
-        <div className="w-full bg-white rounded-2xl border border-stone-200/80 shadow-sm p-6 sm:p-7">
+        <div className="w-full">
           <SignIn
             routing="path"
             path="/login"
@@ -28,19 +20,26 @@ export default function LoginPage() {
             appearance={{
               layout: {
                 unsafe_disableDevelopmentModeWarnings: true,
+                logoPlacement: "none",
               },
               elements: {
                 rootBox: "w-full",
-                card: "shadow-none border-none p-0 bg-transparent",
+                card: "border border-stone-200/90 shadow-sm rounded-2xl bg-white p-6 sm:p-7 w-full",
                 headerTitle: "hidden",
                 headerSubtitle: "hidden",
                 formButtonPrimary:
-                  "bg-indigo-600 hover:bg-indigo-700 text-white text-[13.5px] font-medium py-2.5 rounded-lg transition-colors shadow-sm cursor-pointer",
+                  "bg-indigo-600 hover:bg-indigo-700 text-white text-[13.5px] font-semibold py-2.5 rounded-xl transition-all shadow-xs cursor-pointer",
                 formFieldInput:
-                  "rounded-lg border-stone-200 text-[13.5px] focus:border-indigo-500 focus:ring-indigo-500",
-                footerActionLink: "text-indigo-600 hover:text-indigo-700 font-medium",
-                identityPreviewText: "text-stone-700 text-[13px]",
-                identityPreviewEditButton: "text-indigo-600 hover:text-indigo-700",
+                  "rounded-xl border-stone-200 text-[13.5px] focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 py-2.5",
+                formFieldLabel: "text-[12.5px] font-medium text-stone-700",
+                footerActionLink: "text-indigo-600 hover:text-indigo-700 font-medium text-[13px]",
+                dividerLine: "bg-stone-100",
+                dividerText: "text-stone-400 text-[12px]",
+                identityPreviewText: "text-stone-700 text-[13px] font-medium",
+                identityPreviewEditButton: "text-indigo-600 hover:text-indigo-700 text-[12px]",
+                formFieldAction: "text-indigo-600 hover:text-indigo-700 text-[12px]",
+                socialButtonsBlockButton:
+                  "border border-stone-200 hover:bg-stone-50 text-stone-700 rounded-xl py-2.5 text-[13px] font-medium transition-colors",
               },
             }}
           />

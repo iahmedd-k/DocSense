@@ -41,6 +41,8 @@ import {
   Info,
 } from "lucide-react";
 
+import { BrandLogo } from "../components/BrandLogo";
+
 import {
   listDocuments,
   uploadDocument,
@@ -172,7 +174,7 @@ function PlanBadge({ plan, onClick }) {
       className="flex items-center gap-1.5 text-[12px] font-medium px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50/70 text-indigo-700 hover:bg-indigo-100 transition-colors shrink-0 cursor-pointer"
     >
       <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-      <span>Portfolio Demo · 7 Queries</span>
+      <span>Demo Tier · 7 Queries</span>
     </button>
   );
 }
@@ -342,7 +344,12 @@ function TopBar({ route, onRouteChange, plan, onOpenUsage, onLogout, files, onTa
   }, [route]);
 
   return (
-    <div className="h-12 shrink-0 border-b border-stone-200 flex items-center gap-4 px-3 bg-white/90 backdrop-blur-sm sticky top-0 z-20">
+    <div className="h-12 shrink-0 border-b border-stone-200 flex items-center gap-4 px-4 bg-white/90 backdrop-blur-sm sticky top-0 z-20">
+      <div className="flex items-center gap-3 shrink-0">
+        <BrandLogo size={28} showText={false} />
+        <div className="h-4 w-px bg-stone-200" />
+      </div>
+
       <div className="relative flex items-center gap-1 shrink-0">
         {indicator && (
           <div
@@ -1462,13 +1469,10 @@ function FileRow({ file, selected, onToggleSelect, onRetry, onRequestDelete, onC
       <div style={{ width: 100 }} className="shrink-0">
         <StatusIndicator status={file.status} />
       </div>
-      <div style={{ width: 80 }} className="shrink-0 text-[12px] text-stone-500 tabular-nums text-right">
+      <div style={{ width: 90 }} className="shrink-0 text-[12px] text-stone-500 tabular-nums text-right">
         {formatBytes(file.size)}
       </div>
-      <div style={{ width: 90 }} className="shrink-0 text-[12px] text-stone-500 tabular-nums text-right">
-        {file.chunks != null ? `${file.chunks} chunks` : "—"}
-      </div>
-      <div style={{ width: 70 }} className="shrink-0 text-[11.5px] text-stone-400 text-right whitespace-nowrap">
+      <div style={{ width: 80 }} className="shrink-0 text-[11.5px] text-stone-400 text-right whitespace-nowrap">
         {file.updated}
       </div>
 
@@ -1576,7 +1580,7 @@ function UsageView({ files, plan, usageData }) {
         <div className="flex items-center gap-2 text-[13px]">
           <Sparkles className="w-4 h-4 text-indigo-600" />
           <span className="text-stone-700 font-medium">
-            Portfolio Showcase Tier <span className="text-stone-400 font-normal">· Live Public Demo</span>
+            Demo Tier <span className="text-stone-400 font-normal">· Live Demo Environment</span>
           </span>
         </div>
         <div className="text-[12px] text-stone-600 font-medium bg-white border border-stone-200 rounded-md px-2.5 py-1">
@@ -1626,7 +1630,7 @@ function UsageView({ files, plan, usageData }) {
           Live Demo Quota & Architecture
         </div>
         <p className="text-stone-500 text-[12.5px] leading-relaxed">
-          DocSense is an open-source portfolio demonstration showcasing hybrid vector retrieval (pgvector + PostgreSQL full-text search), cross-encoder reranking, OCR ingestion, and strict LLM grounding. Paid billing is disabled for this public demonstration. Each account is provisioned with 7 free queries to evaluate the RAG pipeline.
+          DocSense is an AI document search platform showcasing hybrid vector retrieval (pgvector + PostgreSQL full-text search), cross-encoder reranking, OCR ingestion, and strict LLM grounding. Each demo account is provisioned with 7 free queries to evaluate the RAG pipeline.
         </p>
       </div>
     </div>
@@ -1653,10 +1657,11 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
         try {
           const status = await getDocumentStatus(docId);
           const mappedStatus = status.status === "completed" ? "indexed" : status.status;
-          setFiles((prev) => prev.map((f) => (f.id === docId ? { ...f, status: mappedStatus } : f)));
-
-          if (status.status !== "completed" && status.status !== "failed") {
-            setTimeout(poll, 2000);
+          setFiles((prev) =>
+            prev.map((f) => (f.id === docId ? { ...f, status: mappedStatus, error: status.error_message } : f))
+          );
+          if (mappedStatus === "processing" || mappedStatus === "uploaded") {
+            setTimeout(poll, 1500);
           } else {
             delete pollingRef.current[docId];
           }
@@ -1674,9 +1679,20 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
       const selected = Array.from(fileList);
       if (selected.length === 0) return;
 
+      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB limit
+      const validFiles = [];
+      for (const file of selected) {
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`"${file.name}" exceeds the 10 MB demo limit.`);
+        } else {
+          validFiles.push(file);
+        }
+      }
+      if (validFiles.length === 0) return;
+
       setUploading(true);
       try {
-        for (const file of selected) {
+        for (const file of validFiles) {
           const doc = await uploadDocument(file);
           const mapped = mapDocumentToFrontend(doc);
           mapped.status = "processing";
@@ -1880,9 +1896,8 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
                   <div style={{ width: 24 }} className="shrink-0" />
                   <div className="flex-1 min-w-0">Source</div>
                   <div style={{ width: 100 }} className="shrink-0">Status</div>
-                  <div style={{ width: 80 }} className="shrink-0 text-right">Size</div>
-                  <div style={{ width: 90 }} className="shrink-0 text-right">Chunks</div>
-                  <div style={{ width: 70 }} className="shrink-0 text-right">Updated</div>
+                  <div style={{ width: 90 }} className="shrink-0 text-right">Size</div>
+                  <div style={{ width: 80 }} className="shrink-0 text-right">Updated</div>
                   <div style={{ width: 138 }} className="shrink-0 text-right">Actions</div>
                 </div>
                 {filtered.length === 0 ? (
