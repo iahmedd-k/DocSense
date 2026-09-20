@@ -1,5 +1,5 @@
 import { SignIn } from "@clerk/react";
-import { Database, Sparkles } from "lucide-react";
+import { Database } from "lucide-react";
 
 export default function LoginPage() {
   return (
@@ -10,11 +10,11 @@ export default function LoginPage() {
           <div className="w-11 h-11 rounded-xl bg-indigo-600 shadow-md shadow-indigo-500/20 flex items-center justify-center mb-3">
             <Database className="w-5 h-5 text-white" />
           </div>
-          <h1 className="text-[22px] font-bold text-stone-900 tracking-tight flex items-center gap-1.5">
+          <h1 className="text-[22px] font-bold text-stone-900 tracking-tight">
             DocSense
           </h1>
-          <p className="text-[13px] text-stone-500 mt-1 max-w-[300px]">
-            Grounded AI Document Intelligence & Search
+          <p className="text-[13px] text-stone-500 mt-1 max-w-[320px]">
+            Sign in to your document intelligence workspace
           </p>
         </div>
 
@@ -26,11 +26,14 @@ export default function LoginPage() {
             signUpUrl="/signup"
             fallbackRedirectUrl="/"
             appearance={{
+              layout: {
+                unsafe_disableDevelopmentModeWarnings: true,
+              },
               elements: {
                 rootBox: "w-full",
                 card: "shadow-none border-none p-0 bg-transparent",
-                headerTitle: "text-[18px] font-semibold text-stone-900 text-center",
-                headerSubtitle: "text-[13px] text-stone-500 text-center",
+                headerTitle: "hidden",
+                headerSubtitle: "hidden",
                 formButtonPrimary:
                   "bg-indigo-600 hover:bg-indigo-700 text-white text-[13.5px] font-medium py-2.5 rounded-lg transition-colors shadow-sm cursor-pointer",
                 formFieldInput:
@@ -41,14 +44,6 @@ export default function LoginPage() {
               },
             }}
           />
-        </div>
-
-        {/* Demo Notice Footer */}
-        <div className="mt-6 text-center">
-          <p className="text-[12px] text-stone-400 flex items-center justify-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            Interactive Portfolio Demonstration
-          </p>
         </div>
       </div>
     </div>
