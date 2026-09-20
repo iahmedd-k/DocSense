@@ -31,27 +31,25 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://docsense-one.vercel.app",
     ]
 
     @field_validator("cors_origins", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: str | list[str] | None) -> list[str]:
+        default_origins = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "https://docsense-one.vercel.app",
+        ]
         if not v:
-            return [
-                "http://localhost:3000",
-                "http://127.0.0.1:3000",
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-            ]
+            return default_origins
         if isinstance(v, str):
             v_str = v.strip()
             if not v_str:
-                return [
-                    "http://localhost:3000",
-                    "http://127.0.0.1:3000",
-                    "http://localhost:5173",
-                    "http://127.0.0.1:5173",
-                ]
+                return default_origins
             if v_str.startswith("[") and v_str.endswith("]"):
                 import json
                 try:
@@ -63,12 +61,7 @@ class Settings(BaseSettings):
             return [i.strip() for i in v_str.split(",") if i.strip()]
         if isinstance(v, list):
             return [str(i).strip() for i in v if str(i).strip()]
-        return [
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ]
+        return default_origins
 
     cloudinary_cloud_name: str = ""
     cloudinary_api_key: str = ""
