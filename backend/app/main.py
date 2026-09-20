@@ -39,18 +39,6 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
 )
 
-# ── Robust CORS Setup for Allowed Frontend Origins & Vercel Domains ────────
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.onrender\.com)(:\d+)?$",
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["Content-Range", "Retry-After"],
-)
-
-
 # ── Global Rate Limiting Middleware (120 req/min per IP) ─────────────────
 @app.middleware("http")
 async def rate_limiting_middleware(request: Request, call_next):
@@ -89,6 +77,18 @@ async def log_request_time(request: Request, call_next):
         duration,
     )
     return response
+
+
+# ── Outermost CORS Setup for Allowed Frontend Origins & Vercel Domains ────
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins if isinstance(settings.cors_origins, list) else [settings.cors_origins],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.onrender\.com)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Range", "Retry-After"],
+)
 
 
 register_exception_handlers(app)
