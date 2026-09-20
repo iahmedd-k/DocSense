@@ -17,27 +17,22 @@ DocSense is containerized using **Docker** and orchestrated with **Docker Compos
 │                                                                         │
 │                      ┌─────────────────────┐                            │
 │                      │    Client / User    │                            │
-│                      │  (Web Browser)      │                            │
+│                      │  (React 19 / Vite)  │                            │
 │                      └──────────┬──────────┘                            │
 │                                 │                                       │
-│                           HTTPS :443                     Production     │
-│                                 │                                       │
-│                      ┌──────────▼──────────┐                            │
-│                      │   Reverse Proxy     │                            │
-│                      │   (Nginx/Caddy)     │                            │
-│                      └──────────┬──────────┘                            │
+│                           HTTPS :443                 Render / Vercel    │
 │                                 │                                       │
 │                      ┌──────────▼──────────┐                            │
 │                      │   FastAPI Backend   │                            │
-│                      │   (Uvicorn :8000)   │                            │
+│                      │   (Uvicorn :8000)   │         Render Web Service │
 │                      └──────────┬──────────┘                            │
 │                                 │                                       │
 │               ┌─────────────────┼─────────────────┐                     │
 │               │                 │                 │                     │
 │      ┌────────▼────────┐ ┌──────▼───────┐ ┌──────▼────────┐            │
-│      │  PostgreSQL     │ │  Cloudinary  │ │ External APIs │            │
-│      │  + pgvector     │ │  (Storage)   │ │ Groq / HF     │            │
-│      │  (5432)         │ │              │ │ DDG           │            │
+│      │    Supabase     │ │   Supabase   │ │ External APIs │            │
+│      │   PostgreSQL    │ │    Storage   │ │ Groq / HF     │            │
+│      │   + pgvector    │ │  (documents) │ │ Clerk Auth    │            │
 │      └─────────────────┘ └──────────────┘ └───────────────┘            │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
@@ -52,7 +47,7 @@ DocSense is containerized using **Docker** and orchestrated with **Docker Compos
 | Tool | Version | Purpose |
 |------|---------|---------|
 | Python | 3.12+ | Application runtime |
-| PostgreSQL | 16 | Database (with pgvector) |
+| PostgreSQL / Supabase | 16/17 | Database (with pgvector) |
 | Docker | 20.10+ | Containerization |
 | Docker Compose | 2.x | Multi-container orchestration |
 | Git | 2.x | Version control |
@@ -61,9 +56,10 @@ DocSense is containerized using **Docker** and orchestrated with **Docker Compos
 
 | Service | Purpose | Requirement |
 |---------|---------|-------------|
-| Cloudinary | PDF file storage | Account + API credentials |
-| HuggingFace | Vector embeddings | API token |
-| Groq | LLM chat completion | API key |
+| Supabase | PostgreSQL + pgvector + Object Storage | Database URL + Secret Key |
+| Clerk | Multi-tenant User Authentication | Publishable Key + Secret Key |
+| Groq | Fast LLM chat completion & reasoning | API Key |
+| HuggingFace | 768-dim Vector Embeddings & Reranking | API Token |
 
 ---
 

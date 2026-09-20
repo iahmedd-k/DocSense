@@ -1633,7 +1633,7 @@ function UsageView({ files, plan, usageData }) {
           Live Demo Quota & Architecture
         </div>
         <p className="text-stone-500 text-[12.5px] leading-relaxed">
-          DocSense is an AI document search platform showcasing hybrid vector retrieval (pgvector + PostgreSQL full-text search), cross-encoder reranking, OCR ingestion, and strict LLM grounding. Each demo account is provisioned with 7 free queries to evaluate the RAG pipeline.
+          DocSense is an enterprise hybrid search and verified document Q&A platform powered by pgvector dense retrieval, PostgreSQL full-text search, and cross-encoder reranking. Each demo account is provisioned with 7 free queries to evaluate the RAG pipeline.
         </p>
       </div>
     </div>

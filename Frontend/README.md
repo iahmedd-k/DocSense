@@ -1,6 +1,6 @@
 # 💻 DocSense Frontend
 
-The modern user interface for the **DocSense** hybrid-search & verified RAG document Q&A platform, built with React 19, Vite, Tailwind CSS, and Clerk Authentication.
+The modern user interface for the **DocSense** enterprise hybrid search & verified document Q&A platform, built with React 19, Vite, Tailwind CSS, and Clerk Authentication.
 
 ---
 
