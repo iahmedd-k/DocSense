@@ -1,8 +1,23 @@
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
 import DashboardPage from "./pages/DashboardPage";
+
+function useWakeupPing() {
+  useEffect(() => {
+    // Eagerly wake up Render free-tier instance on first page load
+    const rawUrl =
+      (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+      (import.meta.env.VITE_API_URL as string | undefined) ||
+      "";
+    const cleanUrl = rawUrl.trim().replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+    const pingUrl = cleanUrl ? `${cleanUrl}/health` : "/health";
+
+    fetch(pingUrl, { method: "GET", mode: "cors" }).catch(() => {});
+  }, []);
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading, isSignedIn } = useAuth();
@@ -54,6 +69,8 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useWakeupPing();
+
   return (
     <AuthProvider>
       <BrowserRouter>

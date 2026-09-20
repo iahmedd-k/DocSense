@@ -344,10 +344,10 @@ function TopBar({ route, onRouteChange, plan, onOpenUsage, onLogout, files, onTa
   }, [route]);
 
   return (
-    <div className="h-12 shrink-0 border-b border-stone-200 flex items-center gap-4 px-4 bg-white/90 backdrop-blur-sm sticky top-0 z-20">
-      <div className="flex items-center gap-3 shrink-0">
+    <div className="h-13 shrink-0 border-b border-stone-200 flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-4 bg-white/95 backdrop-blur-sm sticky top-0 z-20">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <BrandLogo size={28} showText={false} />
-        <div className="h-4 w-px bg-stone-200" />
+        <div className="hidden sm:block h-4 w-px bg-stone-200" />
       </div>
 
       <div className="relative flex items-center gap-1 shrink-0">
@@ -365,24 +365,24 @@ function TopBar({ route, onRouteChange, plan, onOpenUsage, onLogout, files, onTa
               key={item.id}
               ref={(el) => (btnRefs.current[item.id] = el)}
               onClick={() => onRouteChange(item.id)}
-              className={`relative z-10 flex items-center gap-1.5 text-[12.5px] font-medium px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+              className={`relative z-10 flex items-center gap-1.5 text-[12px] sm:text-[12.5px] font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
                 active ? "text-stone-900" : "text-stone-500 hover:text-stone-700"
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
-              {item.label}
+              <Icon className="w-3.5 h-3.5 shrink-0" />
+              <span>{item.label}</span>
             </button>
           );
         })}
       </div>
 
-      <div className="flex-1 flex justify-center min-w-0">
+      <div className="hidden md:flex flex-1 justify-center min-w-0 max-w-sm">
         <DocSearch files={files} onSelect={onTagDoc} />
       </div>
 
-      <div className="flex items-center gap-3 shrink-0">
+      <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
         <PlanBadge plan={plan} onClick={onOpenUsage} />
-        <div className="flex items-center gap-2 pl-1 border-l border-stone-200">
+        <div className="flex items-center gap-1.5 sm:gap-2 pl-1 border-l border-stone-200">
           <UserButton
             afterSignOutUrl="/login"
             appearance={{
@@ -393,10 +393,11 @@ function TopBar({ route, onRouteChange, plan, onOpenUsage, onLogout, files, onTa
           />
           <button
             onClick={onLogout}
-            className="flex items-center gap-1.5 text-[12.5px] font-medium px-2.5 py-1.5 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer"
+            title="Sign out"
+            className="flex items-center gap-1 text-[12px] sm:text-[12.5px] font-medium p-1.5 sm:px-2.5 sm:py-1.5 rounded-lg text-stone-500 hover:text-stone-700 hover:bg-stone-100 transition-colors cursor-pointer"
           >
-            <LogOut className="w-3.5 h-3.5" />
-            Sign out
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>
       </div>
@@ -844,6 +845,7 @@ function ChatInboxDashboard({
   const [scopedDocIds, setScopedDocIds] = useState([]);
   const [showDocPicker, setShowDocPicker] = useState(false);
   const [inlineUploading, setInlineUploading] = useState(false);
+  const [mobileShowSidebar, setMobileShowSidebar] = useState(false);
   const scrollRef = useRef(null);
   const docPickerRef = useRef(null);
   const inlineFileInputRef = useRef(null);
@@ -1141,22 +1143,45 @@ function ChatInboxDashboard({
   };
 
   return (
-    <div className={`h-full w-full flex bg-white text-stone-900 transition-opacity duration-200 ${mounted ? "opacity-100" : "opacity-0"}`}>
+    <div className={`h-full w-full flex bg-white text-stone-900 transition-opacity duration-200 relative overflow-hidden ${mounted ? "opacity-100" : "opacity-0"}`}>
+      {/* Mobile Backdrop */}
+      {mobileShowSidebar && (
+        <div
+          onClick={() => setMobileShowSidebar(false)}
+          className="fixed inset-0 bg-stone-900/40 backdrop-blur-xs z-30 md:hidden"
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-[300px] shrink-0 border-r border-stone-200 flex flex-col bg-stone-50/40">
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-[85vw] max-w-[300px] bg-stone-50 border-r border-stone-200 flex flex-col transition-transform duration-200 ease-out md:static md:w-[300px] md:translate-x-0 ${
+          mobileShowSidebar ? "translate-x-0 shadow-2xl" : "-translate-x-full md:translate-x-0"
+        }`}
+      >
         <div className="flex items-center justify-between px-4 pt-4 pb-3">
           <h2 className="text-[15px] font-semibold tracking-tight">Conversations</h2>
-          <button
-            onClick={addChat}
-            title="New chat"
-            className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors cursor-pointer shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                addChat();
+                setMobileShowSidebar(false);
+              }}
+              title="New chat"
+              className="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors cursor-pointer shadow-xs"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setMobileShowSidebar(false)}
+              className="md:hidden w-8 h-8 rounded-full hover:bg-stone-200/70 flex items-center justify-center text-stone-500 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <div className="px-4 pb-3">
-          <div className="flex items-center gap-2 bg-stone-100 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-2 bg-stone-200/60 rounded-lg px-3 py-2">
             <Search className="w-4 h-4 text-stone-400 shrink-0" />
             <input
               value={search}
@@ -1182,7 +1207,15 @@ function ChatInboxDashboard({
             </div>
           ) : (
             filtered.map((chat) => (
-              <ChatRow key={chat.id} chat={chat} isActive={chat.id === activeId} onClick={() => openChat(chat.id)} />
+              <ChatRow
+                key={chat.id}
+                chat={chat}
+                isActive={chat.id === activeId}
+                onClick={() => {
+                  openChat(chat.id);
+                  setMobileShowSidebar(false);
+                }}
+              />
             ))
           )}
         </div>
@@ -1207,8 +1240,15 @@ function ChatInboxDashboard({
 
       {/* Main panel */}
       <main className="flex-1 flex flex-col min-w-0 bg-white">
-        <header className="flex items-center justify-between px-8 pt-5 pb-4 border-b border-stone-100">
+        <header className="flex items-center justify-between px-4 sm:px-8 pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-stone-100 gap-2">
           <div className="flex items-center gap-2 min-w-0 flex-1">
+            <button
+              onClick={() => setMobileShowSidebar(true)}
+              className="md:hidden shrink-0 flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-lg border border-stone-200 text-stone-700 bg-stone-50 hover:bg-stone-100 cursor-pointer"
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Chats</span>
+            </button>
             {editingTitle ? (
               <input
                 autoFocus
@@ -1219,11 +1259,11 @@ function ChatInboxDashboard({
                   if (e.key === "Enter") commitTitle();
                   if (e.key === "Escape") setEditingTitle(false);
                 }}
-                className="text-[17px] font-semibold text-stone-900 bg-stone-50 border border-indigo-300 rounded-md px-2 py-0.5 outline-none min-w-0 flex-1"
+                className="text-[15px] sm:text-[17px] font-semibold text-stone-900 bg-stone-50 border border-indigo-300 rounded-md px-2 py-0.5 outline-none min-w-0 flex-1"
               />
             ) : (
               <>
-                <h2 className="text-[17px] font-semibold text-stone-900 truncate">
+                <h2 className="text-[15px] sm:text-[17px] font-semibold text-stone-900 truncate">
                   {activeChat?.title || (files.length === 0 ? "Knowledge Base Setup" : "DocSense Query Console")}
                 </h2>
                 {activeChat && (
@@ -1236,11 +1276,11 @@ function ChatInboxDashboard({
           </div>
         </header>
 
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-8">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-8">
           {files.length === 0 ? (
             /* NO FILES ONBOARDING STATE */
-            <div className="flex flex-col items-center justify-center h-full text-center py-16 max-w-md mx-auto">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4 shadow-xs">
+            <div className="flex flex-col items-center justify-center h-full text-center py-12 sm:py-16 max-w-md mx-auto">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center mb-4 shadow-xs">
                 {inlineUploading ? (
                   <Loader2 className="w-7 h-7 text-indigo-600 animate-spin" />
                 ) : (
@@ -1441,77 +1481,137 @@ function StatusIndicator({ status }) {
 
 function FileRow({ file, selected, onToggleSelect, onRetry, onRequestDelete, onChat }) {
   return (
-    <div
-      className={`flex items-center gap-3 pl-4 pr-3 py-2 border-b border-stone-100 group transition-colors ${
-        selected ? "bg-indigo-50/50" : "hover:bg-stone-50/80"
-      }`}
-    >
-      <input
-        type="checkbox"
-        checked={selected}
-        onChange={() => onToggleSelect(file.id)}
-        className="w-3.5 h-3.5 rounded border-stone-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer shrink-0"
-      />
+    <>
+      {/* Desktop Row */}
+      <div
+        className={`hidden md:flex items-center gap-3 pl-4 pr-3 py-2 border-b border-stone-100 group transition-colors ${
+          selected ? "bg-indigo-50/50" : "hover:bg-stone-50/80"
+        }`}
+      >
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(file.id)}
+          className="w-3.5 h-3.5 rounded border-stone-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer shrink-0"
+        />
 
-      <div className="w-6 h-6 rounded-md bg-stone-100 flex items-center justify-center shrink-0">
-        <FileTypeIcon type={file.type} className="w-3.5 h-3.5 text-stone-500" />
-      </div>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-1.5 min-w-0">
-          <span className="text-[13px] font-medium text-stone-800 truncate shrink-0 max-w-[45%]">{file.name}</span>
+        <div className="w-6 h-6 rounded-md bg-stone-100 flex items-center justify-center shrink-0">
+          <FileTypeIcon type={file.type} className="w-3.5 h-3.5 text-stone-500" />
         </div>
-        {file.status === "failed" && file.error && <p className="text-[11px] text-rose-500 truncate">{file.error}</p>}
-        {(file.status === "processing" || file.status === "uploaded") && (
-          <div className="mt-0.5 h-[3px] w-28 bg-stone-100 rounded-full overflow-hidden">
-            <div className="h-full bg-amber-400 rounded-full transition-all animate-pulse" style={{ width: `60%` }} />
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-[13px] font-medium text-stone-800 truncate shrink-0 max-w-[45%]">{file.name}</span>
           </div>
-        )}
-      </div>
-
-      <div style={{ width: 100 }} className="shrink-0">
-        <StatusIndicator status={file.status} />
-      </div>
-      <div style={{ width: 90 }} className="shrink-0 text-[12px] text-stone-500 tabular-nums text-right">
-        {formatBytes(file.size)}
-      </div>
-      <div style={{ width: 80 }} className="shrink-0 text-[11.5px] text-stone-400 text-right whitespace-nowrap">
-        {file.updated}
-      </div>
-
-      <div style={{ width: 138 }} className="shrink-0 flex items-center justify-end gap-1">
-        {file.status === "indexed" || file.status === "completed" ? (
-          <button
-            onClick={() => onChat(file)}
-            title={`Chat about ${file.name}`}
-            className="flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 hover:bg-indigo-50 rounded-md px-1.5 py-1 whitespace-nowrap cursor-pointer"
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            Chat
-          </button>
-        ) : (
-          <span style={{ width: 54 }} className="shrink-0" />
-        )}
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {file.status === "failed" && (
-            <button
-              onClick={() => onRetry(file.id)}
-              title="Retry"
-              className="w-6 h-6 rounded-md hover:bg-stone-200 flex items-center justify-center text-stone-500 cursor-pointer"
-            >
-              <RotateCw className="w-3.5 h-3.5" />
-            </button>
+          {file.status === "failed" && file.error && <p className="text-[11px] text-rose-500 truncate">{file.error}</p>}
+          {(file.status === "processing" || file.status === "uploaded") && (
+            <div className="mt-0.5 h-[3px] w-28 bg-stone-100 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-400 rounded-full transition-all animate-pulse" style={{ width: `60%` }} />
+            </div>
           )}
-          <button
-            onClick={() => onRequestDelete(file)}
-            title="Remove"
-            className="w-6 h-6 rounded-md hover:bg-rose-50 flex items-center justify-center text-stone-400 hover:text-rose-500 cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+        </div>
+
+        <div style={{ width: 100 }} className="shrink-0">
+          <StatusIndicator status={file.status} />
+        </div>
+        <div style={{ width: 90 }} className="shrink-0 text-[12px] text-stone-500 tabular-nums text-right">
+          {formatBytes(file.size)}
+        </div>
+        <div style={{ width: 80 }} className="shrink-0 text-[11.5px] text-stone-400 text-right whitespace-nowrap">
+          {file.updated}
+        </div>
+
+        <div style={{ width: 138 }} className="shrink-0 flex items-center justify-end gap-1">
+          {file.status === "indexed" || file.status === "completed" ? (
+            <button
+              onClick={() => onChat(file)}
+              title={`Chat about ${file.name}`}
+              className="flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 hover:bg-indigo-50 rounded-md px-1.5 py-1 whitespace-nowrap cursor-pointer"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Chat
+            </button>
+          ) : (
+            <span style={{ width: 54 }} className="shrink-0" />
+          )}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {file.status === "failed" && (
+              <button
+                onClick={() => onRetry(file.id)}
+                title="Retry"
+                className="w-6 h-6 rounded-md hover:bg-stone-200 flex items-center justify-center text-stone-500 cursor-pointer"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => onRequestDelete(file)}
+              title="Remove"
+              className="w-6 h-6 rounded-md hover:bg-rose-50 flex items-center justify-center text-stone-400 hover:text-rose-500 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Mobile Card */}
+      <div
+        className={`md:hidden flex flex-col p-3 border-b border-stone-100 transition-colors ${
+          selected ? "bg-indigo-50/50" : "bg-white"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+            <input
+              type="checkbox"
+              checked={selected}
+              onChange={() => onToggleSelect(file.id)}
+              className="w-4 h-4 rounded border-stone-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer shrink-0"
+            />
+            <div className="w-7 h-7 rounded-md bg-stone-100 flex items-center justify-center shrink-0">
+              <FileTypeIcon type={file.type} className="w-4 h-4 text-stone-600" />
+            </div>
+            <span className="text-[13.5px] font-medium text-stone-900 truncate flex-1">{file.name}</span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {(file.status === "indexed" || file.status === "completed") && (
+              <button
+                onClick={() => onChat(file)}
+                className="flex items-center gap-1 text-[11.5px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md px-2 py-1 cursor-pointer"
+              >
+                <MessageSquare className="w-3 h-3" />
+                Chat
+              </button>
+            )}
+            {file.status === "failed" && (
+              <button
+                onClick={() => onRetry(file.id)}
+                className="w-7 h-7 rounded-md bg-stone-100 hover:bg-stone-200 flex items-center justify-center text-stone-600 cursor-pointer"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={() => onRequestDelete(file)}
+              className="w-7 h-7 rounded-md hover:bg-rose-50 flex items-center justify-center text-stone-400 hover:text-rose-600 cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pl-6 text-[12px] text-stone-500">
+          <StatusIndicator status={file.status} />
+          <div className="flex items-center gap-2 text-stone-400 text-[11.5px]">
+            <span>{formatBytes(file.size)}</span>
+            <span>·</span>
+            <span>{file.updated}</span>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
