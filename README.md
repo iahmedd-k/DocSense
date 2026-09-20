@@ -1,7 +1,7 @@
 # 📄 DocSense
 
 <p align="center">
-  <strong>Production-Grade Grounded AI Document Intelligence & Hybrid Retrieval Platform</strong>
+  <strong>Production-Grade Hybrid Search & Verified RAG Document Q&A Platform</strong>
 </p>
 
 <p align="center">

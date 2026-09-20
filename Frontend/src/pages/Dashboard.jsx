@@ -829,6 +829,7 @@ function ChatInboxDashboard({
   files,
   usageData,
   refreshFiles,
+  refreshUsage,
   onOpenSources,
 }) {
   const [conversations, setConversations] = useState([]);
@@ -1074,6 +1075,7 @@ function ChatInboxDashboard({
       setConversations((prev) =>
         prev.map((c) => (c.id === targetChatId ? { ...c, updated_at: new Date().toISOString() } : c))
       );
+      if (refreshUsage) refreshUsage();
     } catch (err) {
       clearInterval(stageTimer);
       setPipeline(null);
@@ -1131,6 +1133,7 @@ function ChatInboxDashboard({
       };
 
       setTurnsById((prev) => ({ ...prev, [activeId]: [...prev[activeId], assistantTurn] }));
+      if (refreshUsage) refreshUsage();
     } catch {
       clearInterval(stageTimer);
       setPipeline(null);
@@ -1637,7 +1640,19 @@ function UsageView({ files, plan, usageData }) {
   );
 }
 
-function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, setFiles, onTagDoc, usageData }) {
+function RagFileManager({
+  plan,
+  onUpgrade,
+  onDowngrade,
+  view,
+  setView,
+  files,
+  setFiles,
+  onTagDoc,
+  usageData,
+  refreshFiles,
+  refreshUsage,
+}) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isDragging, setIsDragging] = useState(false);
@@ -1664,6 +1679,8 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
             setTimeout(poll, 1500);
           } else {
             delete pollingRef.current[docId];
+            if (refreshUsage) refreshUsage();
+            if (refreshFiles) refreshFiles();
           }
         } catch {
           delete pollingRef.current[docId];
@@ -1671,7 +1688,7 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
       };
       setTimeout(poll, 1500);
     },
-    [setFiles]
+    [setFiles, refreshUsage, refreshFiles]
   );
 
   const addFiles = useCallback(
@@ -1700,13 +1717,15 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
           setFiles((prev) => [mapped, ...prev]);
           pollDocumentStatus(doc.id);
         }
+        if (refreshUsage) refreshUsage();
+        if (refreshFiles) refreshFiles();
       } catch (err) {
         console.error("Upload failed:", err);
       } finally {
         setUploading(false);
       }
     },
-    [setFiles, pollDocumentStatus]
+    [setFiles, pollDocumentStatus, refreshUsage, refreshFiles]
   );
 
   const onDrop = (e) => {
@@ -1754,6 +1773,8 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
         ids.forEach((id) => next.delete(id));
         return next;
       });
+      if (refreshUsage) refreshUsage();
+      if (refreshFiles) refreshFiles();
     } catch (err) {
       console.error("Delete failed:", err);
     }
@@ -1783,7 +1804,7 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
             <div>
               <h1 className="text-[18px] font-semibold tracking-tight">Knowledge Sources</h1>
               <p className="text-[13px] text-stone-500 mt-0.5 mb-4">
-                Files uploaded here are chunked, embedded, and made retrievable to the assistant.
+                Upload documents to extract, OCR, index with pgvector + FTS, and enable verified retrieval.
               </p>
             </div>
           </div>
@@ -1806,16 +1827,15 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
         </header>
 
         {view === "usage" ? (
-          <UsageView files={files} plan={plan} onUpgrade={onUpgrade} onDowngrade={onDowngrade} usageData={usageData} />
+          <UsageView files={files} plan={plan} usageData={usageData} />
         ) : (
           <>
             <div className="px-8 py-5 shrink-0">
               {uploadLimitReached ? (
                 <UpgradeLockBar
                   icon={UploadCloud}
-                  title={`You've reached the ${uploadLimit}-source limit on the Free plan`}
-                  subtitle="Upgrade to Pro for unlimited indexed sources."
-                  onUpgrade={onUpgrade}
+                  title={`You've reached the ${uploadLimit}-source limit on the Demo tier`}
+                  subtitle="Each demo account is provisioned with 5 indexed sources."
                 />
               ) : (
                 <div
@@ -1924,15 +1944,18 @@ function RagFileManager({ plan, onUpgrade, onDowngrade, view, setView, files, se
               <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-stone-900 text-white rounded-full pl-4 pr-2 py-2 flex items-center gap-3 shadow-xl z-10 animate-slide-up">
                 <span className="text-[13px] font-medium">{selectedIds.size} selected</span>
                 <button
-                  onClick={() => requestDelete(files.filter((f) => selectedIds.has(f.id)))}
-                  className="flex items-center gap-1.5 text-[12.5px] font-medium bg-rose-600 hover:bg-rose-700 rounded-full px-3 py-1.5 cursor-pointer"
+                  onClick={() => {
+                    const toDelete = files.filter((f) => selectedIds.has(f.id));
+                    requestDelete(toDelete);
+                  }}
+                  className="bg-rose-600 hover:bg-rose-700 text-white text-[12px] font-medium px-3 py-1 rounded-full cursor-pointer transition-colors flex items-center gap-1"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Delete
                 </button>
                 <button
                   onClick={() => setSelectedIds(new Set())}
-                  className="w-6 h-6 rounded-full hover:bg-white/10 flex items-center justify-center cursor-pointer"
+                  className="w-6 h-6 rounded-full hover:bg-white/20 flex items-center justify-center text-stone-300 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1960,26 +1983,28 @@ export default function Dashboard({ onLogout, initialPlan = "free" }) {
   const [usageData, setUsageData] = useState(null);
   const mounted = useMountedFade();
 
-  useEffect(() => {
-    listDocuments()
-      .then((docs) => {
-        setFiles(docs.map(mapDocumentToFrontend));
-      })
-      .catch(() => {});
-    getUsage()
-      .then(setUsageData)
-      .catch(() => {});
-  }, []);
-
   const refreshFiles = useCallback(() => {
     listDocuments()
       .then((docs) => setFiles(docs.map(mapDocumentToFrontend)))
       .catch(() => {});
   }, []);
 
+  const refreshUsage = useCallback(() => {
+    getUsage()
+      .then(setUsageData)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refreshFiles();
+    refreshUsage();
+  }, [refreshFiles, refreshUsage]);
+
   const goToRoute = (id) => {
     if (id === "sources") setSourcesView("sources");
     setRoute(id);
+    refreshFiles();
+    refreshUsage();
   };
   const upgrade = () => setPlan("pro");
   const downgrade = () => setPlan("free");
@@ -2002,6 +2027,7 @@ export default function Dashboard({ onLogout, initialPlan = "free" }) {
         onOpenUsage={() => {
           setSourcesView("usage");
           setRoute("sources");
+          refreshUsage();
         }}
         onLogout={onLogout}
         files={files}
@@ -2017,6 +2043,7 @@ export default function Dashboard({ onLogout, initialPlan = "free" }) {
           files={files}
           usageData={usageData}
           refreshFiles={refreshFiles}
+          refreshUsage={refreshUsage}
           onOpenSources={() => goToRoute("sources")}
         />
       </div>
@@ -2031,6 +2058,8 @@ export default function Dashboard({ onLogout, initialPlan = "free" }) {
           setFiles={setFiles}
           onTagDoc={tagDocInChat}
           usageData={usageData}
+          refreshFiles={refreshFiles}
+          refreshUsage={refreshUsage}
         />
       </div>
     </div>

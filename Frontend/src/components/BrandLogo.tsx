@@ -35,7 +35,7 @@ export function BrandLogo({
             DocSense
           </span>
           <span className="text-[11px] text-stone-400 font-medium tracking-wide mt-1">
-            AI Document Intelligence
+            Hybrid Search & Verified RAG
           </span>
         </div>
       )}
