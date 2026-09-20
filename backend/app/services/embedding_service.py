@@ -146,9 +146,6 @@ class EmbeddingService:
                 raise EmbeddingError(f"Local embedding provider failed: {exc}") from exc
 
         if provider_name == "huggingface":
-            if not settings.huggingface_token:
-                logger.warning("HUGGINGFACE_TOKEN not set, falling back to local embedding provider")
-                return LocalEmbeddingProvider(model_name=settings.embedding_model)
             return HuggingFaceEmbeddingProvider(
                 token=settings.huggingface_token,
                 model=settings.embedding_model,

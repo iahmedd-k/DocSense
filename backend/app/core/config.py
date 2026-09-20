@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,11 +18,15 @@ class Settings(BaseSettings):
 
     api_prefix: str = "/api/v1"
 
-    database_url: str = (
-        "postgresql+psycopg://docsense:adminadmin@localhost:5432/docsense"
+    database_url: str = Field(
+        default="postgresql+psycopg://docsense:adminadmin@localhost:5432/docsense",
+        validation_alias=AliasChoices("database_url", "DATABASE_URL"),
     )
 
-    jwt_secret_key: str = "change-me-in-production"
+    jwt_secret_key: str = Field(
+        default="change-me-in-production",
+        validation_alias=AliasChoices("jwt_secret_key", "JWT_SECRET_KEY"),
+    )
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
 
@@ -50,32 +54,45 @@ class Settings(BaseSettings):
             v_str = v.strip()
             if not v_str:
                 return default_origins
-            if v_str.startswith("[") and v_str.endswith("]"):
-                import json
+            if v_str.startswith("["):
                 try:
+                    import json
+
                     parsed = json.loads(v_str)
                     if isinstance(parsed, list):
-                        return [str(i).strip() for i in parsed if str(i).strip()]
+                        return [str(item).strip() for item in parsed if str(item).strip()]
                 except Exception:
                     pass
-            return [i.strip() for i in v_str.split(",") if i.strip()]
+            origins = [origin.strip() for origin in v_str.split(",") if origin.strip()]
+            return origins if origins else default_origins
         if isinstance(v, list):
-            return [str(i).strip() for i in v if str(i).strip()]
+            origins = [str(origin).strip() for origin in v if str(origin).strip()]
+            return origins if origins else default_origins
         return default_origins
 
+    # Supabase (Object Storage)
+    supabase_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("supabase_url", "SUPABASE_URL"),
+    )
+    supabase_secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("supabase_secret_key", "SUPABASE_SECRET_KEY", "supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY"),
+    )
+    supabase_bucket: str = "documents"
+
+    # Cloudinary (Object Storage — fallback)
     cloudinary_cloud_name: str = ""
     cloudinary_api_key: str = ""
     cloudinary_api_secret: str = ""
+
+    # Document upload limits
     max_file_size_mb: int = 10
-
-    supabase_url: str = ""
-    supabase_secret_key: str = ""
-    supabase_bucket: str = "documents"
-
     local_temp_dir: str = "./tmp"
 
-    chunk_size: int = 400  # token count (not characters)
-    chunk_overlap: int = 50  # token count
+    # Chunking defaults (FR-007)
+    chunk_size: int = 512
+    chunk_overlap: int = 50
 
     # Retrieval
     retrieval_default_top_k: int = 10
@@ -108,14 +125,29 @@ class Settings(BaseSettings):
     answer_revision_max_attempts: int = 1
 
     # Embeddings (Hugging Face Inference API)
-    embedding_provider: str = "huggingface"
-    embedding_model: str = "Snowflake/snowflake-arctic-embed-m"
+    embedding_provider: str = Field(
+        default="huggingface",
+        validation_alias=AliasChoices("embedding_provider", "EMBEDDING_PROVIDER"),
+    )
+    embedding_model: str = Field(
+        default="Snowflake/snowflake-arctic-embed-m",
+        validation_alias=AliasChoices("embedding_model", "EMBEDDING_MODEL"),
+    )
     embedding_dimension: int = 768
-    huggingface_token: str = ""
-    huggingface_inference_url: str = "https://router.huggingface.co/v1"
+    huggingface_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("huggingface_token", "HUGGINGFACE_TOKEN", "hf_token", "HF_TOKEN"),
+    )
+    huggingface_inference_url: str = Field(
+        default="https://router.huggingface.co/v1",
+        validation_alias=AliasChoices("huggingface_inference_url", "HUGGINGFACE_INFERENCE_URL"),
+    )
 
-    # Groq (LLM / query processing, used in later features)
-    groq_api_key: str = ""
+    # Groq (LLM / query processing)
+    groq_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("groq_api_key", "GROQ_API_KEY"),
+    )
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_chat_model: str = ""
 
