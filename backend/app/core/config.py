@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_access_token_expire_minutes: int = 60
 
-    cors_origins: list[str] = [
+    cors_origins: str | list[str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:5173",
@@ -35,17 +35,34 @@ class Settings(BaseSettings):
 
     @field_validator("cors_origins", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
+    def assemble_cors_origins(cls, v: str | list[str] | None) -> list[str]:
+        if not v:
+            return [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+            ]
         if isinstance(v, str):
-            if v.startswith("[") and v.endswith("]"):
+            v_str = v.strip()
+            if not v_str:
+                return [
+                    "http://localhost:3000",
+                    "http://127.0.0.1:3000",
+                    "http://localhost:5173",
+                    "http://127.0.0.1:5173",
+                ]
+            if v_str.startswith("[") and v_str.endswith("]"):
                 import json
                 try:
-                    return json.loads(v)
+                    parsed = json.loads(v_str)
+                    if isinstance(parsed, list):
+                        return [str(i).strip() for i in parsed if str(i).strip()]
                 except Exception:
                     pass
-            return [i.strip() for i in v.split(",") if i.strip()]
-        elif isinstance(v, list):
-            return v
+            return [i.strip() for i in v_str.split(",") if i.strip()]
+        if isinstance(v, list):
+            return [str(i).strip() for i in v if str(i).strip()]
         return [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
