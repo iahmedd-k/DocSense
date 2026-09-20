@@ -41,7 +41,7 @@ export default function SignUpPage() {
                 socialButtonsBlockButton:
                   "border border-stone-200 hover:bg-stone-50 text-stone-700 rounded-xl py-2.5 text-[13px] font-medium transition-colors",
               },
-            }}
+            } as any}
           />
         </div>
       </div>

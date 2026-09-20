@@ -1,5 +1,3 @@
-import React from "react";
-
 export function BrandLogo({
   size = 38,
   showText = true,

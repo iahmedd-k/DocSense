@@ -5,7 +5,12 @@ const RAW_BASE_URL =
   (import.meta.env.VITE_API_URL as string | undefined) ||
   "";
 
-const BASE_URL = RAW_BASE_URL ? `${RAW_BASE_URL.replace(/\/$/, "")}/api/v1` : "/api/v1";
+const cleanUrl = RAW_BASE_URL.trim().replace(/\/+$/, "");
+const BASE_URL = cleanUrl
+  ? cleanUrl.endsWith("/api/v1")
+    ? cleanUrl
+    : `${cleanUrl}/api/v1`
+  : "/api/v1";
 
 let activeToken: string | null = null;
 let authTokenGetter: (() => Promise<string | null>) | null = null;
