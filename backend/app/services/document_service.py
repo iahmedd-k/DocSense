@@ -145,7 +145,7 @@ class DocumentService:
 
         if not chunks:
             logger.warning("No chunks generated for document %s", document.id)
-            return
+            raise PdfParseError(f"No readable text or content found in document {document.id}")
 
         texts = [c.content for c in chunks]
         embeddings = self.embedding_service.generate_embeddings(texts)
@@ -210,14 +210,14 @@ class DocumentService:
 
         return document
 
-    def upload(
+    def upload_async(
         self,
         user_id: int,
         filename: str,
         content_type: str | None,
         file_bytes: bytes,
-    ) -> Document:
-
+    ) -> tuple[Document, Path]:
+        """Save file, upload to storage, create document record with PROCESSING status, and return (document, temp_path)."""
         filename = os.path.basename(filename)
         ext = self._validate_file(filename, content_type)
 
@@ -255,9 +255,46 @@ class DocumentService:
             storage_url=storage_url,
             mime_type=mime_type,
             file_size=len(file_bytes),
-            status=DocumentStatus.UPLOADED,
+            status=DocumentStatus.PROCESSING,
         )
 
+        return document, temp_path
+
+    def process_document_background(self, document_id: int, temp_path_str: str) -> None:
+        """Process document in background with its own DB session."""
+        from app.db.session import SessionLocal
+
+        db = SessionLocal()
+        try:
+            doc_repo = DocumentRepository(db)
+            chunk_repo = DocumentChunkRepository(db)
+            document = doc_repo.get_by_id(document_id)
+            if not document:
+                logger.error("Background processing: document %d not found", document_id)
+                return
+
+            self.document_repository = doc_repo
+            self.document_chunk_repository = chunk_repo
+            temp_path = Path(temp_path_str)
+            self._process(temp_path, document)
+        except Exception:
+            logger.exception("Error in background document processing for %d", document_id)
+        finally:
+            db.close()
+
+    def upload(
+        self,
+        user_id: int,
+        filename: str,
+        content_type: str | None,
+        file_bytes: bytes,
+    ) -> Document:
+        document, temp_path = self.upload_async(
+            user_id=user_id,
+            filename=filename,
+            content_type=content_type,
+            file_bytes=file_bytes,
+        )
         return self._process(temp_path, document)
 
     def process_document(self, user_id: int, document_id: int) -> Document:

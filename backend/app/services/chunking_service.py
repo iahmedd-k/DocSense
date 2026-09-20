@@ -13,6 +13,7 @@ _MIN_CHUNK_TOKENS = 20
 
 # Lazy-loaded tokenizer singleton for token-aware chunking
 _tokenizer = None
+_tokenizer_loaded = False
 
 
 def _get_tokenizer():
@@ -21,9 +22,10 @@ def _get_tokenizer():
     Uses the same model family as the embedding model. Falls back to
     whitespace splitting if transformers is not available.
     """
-    global _tokenizer
-    if _tokenizer is not None:
+    global _tokenizer, _tokenizer_loaded
+    if _tokenizer_loaded:
         return _tokenizer
+    _tokenizer_loaded = True
     try:
         from transformers import AutoTokenizer
 
@@ -31,7 +33,7 @@ def _get_tokenizer():
         _tokenizer = AutoTokenizer.from_pretrained(model_name)
         logger.info("Loaded tokenizer %s for chunk sizing", model_name)
     except Exception:
-        logger.warning(
+        logger.debug(
             "Could not load tokenizer; falling back to whitespace splitting"
         )
         _tokenizer = None

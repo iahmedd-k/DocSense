@@ -42,8 +42,8 @@ class HuggingFaceRerankingProvider(CrossEncoderProvider):
         self.token = token
         self.model = model
         self.base_url = base_url.rstrip("/")
-        # Short timeout: 5s connect, 15s total — fail fast if unreachable
-        self._client = httpx.Client(timeout=httpx.Timeout(15.0, connect=5.0))
+        # Fast timeout: 2s connect, 5s total — fail fast if unreachable
+        self._client = httpx.Client(timeout=httpx.Timeout(5.0, connect=2.0))
 
     def rerank(self, query: str, contents: list[str]) -> list[float]:
         if not contents:
@@ -170,11 +170,11 @@ class RerankingService:
             scores = self.provider.rerank(query, contents)
         except RerankingError as exc:
             logger.warning(
-                "Reranking provider failed (%s), falling back to score-based reranking",
+                "Reranking provider failed (%s), switching permanently to score-based reranking",
                 exc,
             )
-            fallback = ScoreBasedRerankingProvider()
-            scores = fallback.rerank(query, contents)
+            self._provider = ScoreBasedRerankingProvider()
+            scores = self._provider.rerank(query, contents)
 
         if len(scores) != len(candidates):
             raise RerankingError(

@@ -7,8 +7,8 @@ export default function DashboardPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogout = useCallback(() => {
-    logout();
+  const handleLogout = useCallback(async () => {
+    await logout();
     navigate("/login", { replace: true });
   }, [logout, navigate]);
 

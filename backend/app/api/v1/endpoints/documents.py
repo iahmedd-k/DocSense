@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -41,18 +41,28 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
     summary="Upload a document (PDF, CSV, Excel, PPTX, DOCX)",
 )
 def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     document_service: DocumentService = Depends(get_document_service),
 ):
     file_bytes = file.file.read()
-    result = document_service.upload(
+    document, temp_path = document_service.upload_async(
         user_id=current_user.id,
         filename=file.filename or "",
         content_type=file.content_type,
         file_bytes=file_bytes,
     )
-    return ApiResponse(success=True, data=result, message="Document uploaded successfully.")
+    background_tasks.add_task(
+        document_service.process_document_background,
+        document.id,
+        str(temp_path),
+    )
+    return ApiResponse(
+        success=True,
+        data=document,
+        message="Document uploaded successfully. Processing started in background.",
+    )
 
 
 @router.get(

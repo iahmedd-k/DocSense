@@ -1,7 +1,9 @@
+import logging
 from collections.abc import Callable
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import jwt
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ForbiddenError, UnauthorizedError
@@ -9,6 +11,8 @@ from app.core.security import decode_access_token
 from app.db import get_db
 from app.models.user import User, UserRole
 from app.repositories.user_repo import UserRepository
+
+logger = logging.getLogger(__name__)
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -20,24 +24,54 @@ def get_current_user(
     if credentials is None:
         raise UnauthorizedError("Not authenticated")
 
+    token = credentials.credentials
+    user_repo = UserRepository(db)
+
+    # 1. Try decoding with local secret key (native JWT)
     try:
-        payload = decode_access_token(credentials.credentials)
+        payload = decode_access_token(token)
+        user_id = payload.get("sub")
+        if user_id is not None and str(user_id).isdigit():
+            user = user_repo.get_by_id(int(user_id))
+            if user:
+                if not user.is_active:
+                    raise UnauthorizedError("Inactive user")
+                return user
+    except Exception:
+        pass
+
+    # 2. Try decoding as Clerk JWT
+    try:
+        claims = jwt.get_unverified_claims(token)
+        clerk_user_id = claims.get("sub")
+        if clerk_user_id:
+            email = (
+                claims.get("email")
+                or claims.get("primary_email_address")
+                or f"{clerk_user_id}@clerk.user"
+            )
+            user = user_repo.get_by_email(email)
+            if user is None:
+                first_name = (
+                    claims.get("given_name")
+                    or claims.get("first_name")
+                    or "User"
+                )
+                last_name = claims.get("family_name") or claims.get("last_name") or ""
+                user = user_repo.create(
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    password_hash="clerk_managed",
+                )
+            if not user.is_active:
+                raise UnauthorizedError("Inactive user")
+            return user
     except Exception as exc:
-        raise UnauthorizedError("Invalid or expired token") from exc
+        logger.error(f"Error during Clerk token resolution: {exc}", exc_info=True)
+        raise UnauthorizedError("Invalid authentication token") from exc
 
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise UnauthorizedError("Invalid token payload")
-
-    user = UserRepository(db).get_by_id(int(user_id))
-
-    if user is None:
-        raise UnauthorizedError("User no longer exists")
-
-    if not user.is_active:
-        raise UnauthorizedError("Inactive user")
-
-    return user
+    raise UnauthorizedError("Invalid token payload")
 
 
 def require_role(*roles: UserRole) -> Callable:

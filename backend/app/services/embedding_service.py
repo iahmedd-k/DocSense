@@ -114,14 +114,25 @@ class EmbeddingService:
         provider_name = settings.embedding_provider.lower()
 
         if provider_name == "local":
-            return LocalEmbeddingProvider(model_name=settings.embedding_model)
+            try:
+                return LocalEmbeddingProvider(model_name=settings.embedding_model)
+            except Exception as exc:
+                if settings.huggingface_token:
+                    logger.warning(
+                        "Local embedding provider failed to load (%s), falling back to Hugging Face Cloud API",
+                        exc,
+                    )
+                    return HuggingFaceEmbeddingProvider(
+                        token=settings.huggingface_token,
+                        model=settings.embedding_model,
+                        base_url=settings.huggingface_inference_url,
+                    )
+                raise EmbeddingError(f"Local embedding provider failed: {exc}") from exc
 
         if provider_name == "huggingface":
             if not settings.huggingface_token:
-                raise EmbeddingError(
-                    "HUGGINGFACE_TOKEN is required for the Hugging Face "
-                    "embedding provider"
-                )
+                logger.warning("HUGGINGFACE_TOKEN not set, falling back to local embedding provider")
+                return LocalEmbeddingProvider(model_name=settings.embedding_model)
             return HuggingFaceEmbeddingProvider(
                 token=settings.huggingface_token,
                 model=settings.embedding_model,
@@ -167,7 +178,27 @@ class EmbeddingService:
         )
 
         t0 = time.perf_counter()
-        embeddings = self.provider.embed(filtered)
+        try:
+            embeddings = self.provider.embed(filtered)
+        except Exception as exc:
+            if isinstance(self.provider, LocalEmbeddingProvider) and settings.huggingface_token:
+                logger.warning("Local embedding failed (%s), switching to Hugging Face Cloud API", exc)
+                self._provider = HuggingFaceEmbeddingProvider(
+                    token=settings.huggingface_token,
+                    model=settings.embedding_model,
+                    base_url=settings.huggingface_inference_url,
+                )
+                embeddings = self._provider.embed(filtered)
+            elif isinstance(self.provider, HuggingFaceEmbeddingProvider):
+                try:
+                    logger.warning("Hugging Face API failed (%s), switching to local embedding model", exc)
+                    self._provider = LocalEmbeddingProvider(model_name=settings.embedding_model)
+                    embeddings = self._provider.embed(filtered)
+                except Exception as local_exc:
+                    raise EmbeddingError(f"Both cloud and local embedding providers failed: {exc}, local: {local_exc}") from exc
+            else:
+                raise EmbeddingError(f"Embedding generation failed: {exc}") from exc
+
         logger.info("Embedding generation: %.3fs", time.perf_counter() - t0)
 
         if len(embeddings) != len(filtered):
