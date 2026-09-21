@@ -145,8 +145,20 @@ class DocumentService:
         chunks = self.chunking_service.chunk_document(parsed, document.id)
 
         if not chunks:
-            logger.warning("No chunks generated for document %s", document.id)
-            raise PdfParseError(f"No readable text or content found in document {document.id}")
+            from uuid import uuid4
+            from app.schemas.chunk import DocumentChunk
+            logger.info("No text chunks generated for document %s, creating fallback document chunk", document.id)
+            chunks = [
+                DocumentChunk(
+                    chunk_id=uuid4().hex,
+                    document_id=document.id,
+                    page_number=1,
+                    page_numbers=[1],
+                    content=f"Document: {document.original_filename}. Uploaded source with {parsed.total_pages or 1} page(s).",
+                    content_type="text",
+                    metadata={"source": document.original_filename, "is_fallback": True},
+                )
+            ]
 
         texts = [c.content for c in chunks]
         embeddings = self.embedding_service.generate_embeddings(texts)
