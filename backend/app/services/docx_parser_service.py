@@ -14,16 +14,12 @@ class DocxParseError(Exception):
 
 @dataclass
 class DocxParserService:
-    """Parse Word documents (.docx) into ParsedPdf format.
-
-    The document is split by headings (Heading 1, 2, 3) into logical sections,
-    each becoming a separate page. Tables are extracted as pipe-delimited text.
-    """
+    """Parse Word documents (.docx) into ParsedPdf format."""
 
     def parse(self, file_path: str) -> ParsedPdf:
         """Parse a .docx file and return ParsedPdf."""
         try:
-            from docx import Document
+            import docx
         except ImportError:
             raise DocxParseError(
                 "python-docx is required for Word document support. "
@@ -31,91 +27,52 @@ class DocxParserService:
             )
 
         try:
-            doc = Document(file_path)
+            doc = docx.Document(file_path)
         except Exception as exc:
             raise DocxParseError(f"Failed to read Word document: {exc}") from exc
 
         pages: list[PdfPage] = []
-        current_section: list[str] = []
-        section_num = 1
+        current_paragraphs: list[str] = []
+        page_num = 1
 
-        for element in doc.element.body:
-            tag = element.tag.split("}")[-1] if "}" in element.tag else element.tag
+        # Extract text from paragraphs
+        for p in doc.paragraphs:
+            text = p.text.strip()
+            if not text:
+                continue
+            # If paragraph is a major heading (Heading 1 or Heading 2), treat as section boundary
+            style_name = ""
+            try:
+                if p.style and hasattr(p.style, "name") and p.style.name:
+                    style_name = p.style.name.lower()
+            except Exception:
+                pass
 
-            if tag in ("heading1", "heading2", "heading3", "Heading1", "Heading2", "Heading3"):
-                # Save current section
-                if current_section:
-                    page_text = "\n\n".join(current_section)
-                    pages.append(PdfPage(
-                        page_number=section_num,
-                        extracted_text=page_text,
-                    ))
-                    section_num += 1
-                    current_section = []
+            if ("heading 1" in style_name or "heading 2" in style_name) and current_paragraphs:
+                pages.append(PdfPage(
+                    page_number=page_num,
+                    extracted_text="\n\n".join(current_paragraphs),
+                ))
+                page_num += 1
+                current_paragraphs = []
+            current_paragraphs.append(text)
 
-                # Get heading text
-                for child in element:
-                    child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                    if child_tag == "t":
-                        text = child.text or ""
-                        if text.strip():
-                            current_section.append(text.strip())
+        # Extract text from tables
+        for table in doc.tables:
+            table_lines = []
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells if cell.text and cell.text.strip()]
+                if cells:
+                    table_lines.append(" | ".join(cells))
+            if table_lines:
+                current_paragraphs.append("\n".join(table_lines))
 
-            elif tag == "p":
-                # Regular paragraph
-                texts = []
-                for child in element:
-                    child_tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                    if child_tag == "r":
-                        for subchild in child:
-                            sub_tag = subchild.tag.split("}")[-1] if "}" in subchild.tag else subchild.tag
-                            if sub_tag == "t":
-                                texts.append(subchild.text or "")
-                text = "".join(texts).strip()
-                if text:
-                    current_section.append(text)
-
-            elif tag == "tbl":
-                # Table
-                table_lines = []
-                for row_idx, row in enumerate(element):
-                    cells = []
-                    for cell in row:
-                        cell_text = cell.text.strip() if cell.text else ""
-                        # Also check for paragraphs inside cells
-                        if not cell_text:
-                            for p in cell.iter():
-                                p_tag = p.tag.split("}")[-1] if "}" in p.tag else p.tag
-                                if p_tag == "t" and p.text:
-                                    cell_text += p.text
-                        cells.append(cell_text.strip())
-                    if cells:
-                        if table_lines and len(cells) == len(table_lines[0].split(" | ")):
-                            pass  # continue table
-                        table_lines.append(" | ".join(cells))
-
-                if table_lines:
-                    current_section.append("\n".join(table_lines))
-
-        # Don't forget the last section
-        if current_section:
-            page_text = "\n\n".join(current_section)
+        # Save remaining content
+        if current_paragraphs:
             pages.append(PdfPage(
-                page_number=section_num,
-                extracted_text=page_text,
-            ))
-
-        # If no sections found, try a simpler approach
+                page_number=page_num,
+                extracted_text="\n\n".join(current_paragraphs),
         if not pages:
-            full_text = "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
-            if full_text.strip():
-                # Split into pages by character count (roughly 2000 chars per page)
-                chunk_size = 2000
-                for i in range(0, len(full_text), chunk_size):
-                    chunk = full_text[i:i + chunk_size]
-                    pages.append(PdfPage(
-                        page_number=len(pages) + 1,
-                        extracted_text=chunk,
-                    ))
+            raise DocxParseError("No readable text or tables found in Word document")
 
         return ParsedPdf(pages=pages, total_pages=len(pages))

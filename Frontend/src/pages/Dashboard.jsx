@@ -144,9 +144,21 @@ function mapDocumentToFrontend(doc) {
   };
 }
 
+function parseUtcDate(dateStr) {
+  if (!dateStr) return null;
+  // If string has no timezone indicator (+, -, or trailing Z), append 'Z' so it parses as UTC
+  const str = typeof dateStr === "string" && !dateStr.endsWith("Z") && !dateStr.includes("+") && !dateStr.slice(10).includes("-")
+    ? `${dateStr}Z`
+    : dateStr;
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? new Date(dateStr) : d;
+}
+
 function formatRelativeTime(dateStr) {
   if (!dateStr) return "";
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const d = parseUtcDate(dateStr);
+  if (!d || isNaN(d.getTime())) return "";
+  const diff = Math.max(0, Date.now() - d.getTime());
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins}m ago`;
@@ -158,12 +170,13 @@ function formatRelativeTime(dateStr) {
 
 function formatConversationDate(dateStr) {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
+  const d = parseUtcDate(dateStr);
+  if (!d || isNaN(d.getTime())) return null;
   const now = new Date();
   const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
   if (diffDays === 0) return "Today";
   if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return d.toLocaleDateString("en-US", { weekday: "short" });
+  if (diffDays < 7) return `${diffDays}d ago`;
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
