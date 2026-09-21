@@ -72,6 +72,8 @@ class DocxParserService:
             pages.append(PdfPage(
                 page_number=page_num,
                 extracted_text="\n\n".join(current_paragraphs),
+            ))
+
         if not pages:
             raise DocxParseError("No readable text or tables found in Word document")
 
