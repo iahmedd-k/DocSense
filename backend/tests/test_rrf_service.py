@@ -33,8 +33,8 @@ class FakeRetrievalService:
         self.results = results
         self.calls = []
 
-    def retrieve(self, user_id, query, top_k):
-        self.calls.append((user_id, query, top_k))
+    def retrieve(self, user_id, query, top_k, document_ids=None):
+        self.calls.append((user_id, query, top_k, document_ids))
         return self.results
 
 
@@ -129,8 +129,8 @@ def test_rrf_search_calls_both_retrievals_and_passes_user_id(
 
     results = rrf.search(user_id=42, query="quarterly earnings", top_k=7)
 
-    assert vector.calls == [(42, "quarterly earnings", 7)]
-    assert lexical.calls == [(42, "quarterly earnings", 7)]
+    assert vector.calls == [(42, "quarterly earnings", 7, None)]
+    assert lexical.calls == [(42, "quarterly earnings", 7, None)]
     assert {c.chunk_id for c in results} == {1, 2, 3}
 
 

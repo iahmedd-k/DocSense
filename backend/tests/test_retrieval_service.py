@@ -26,12 +26,12 @@ class FakeChunkRepository:
     def __init__(self):
         self.recorded = {}
 
-    def search_by_embedding(self, user_id, query_vector, top_k):
-        self.recorded["vector"] = (user_id, query_vector, top_k)
+    def search_by_embedding(self, user_id, query_vector, top_k, document_ids=None):
+        self.recorded["vector"] = (user_id, query_vector, top_k, document_ids)
         return [self._chunk(score=0.9)]
 
-    def search_by_text(self, user_id, query, top_k, language):
-        self.recorded["lexical"] = (user_id, query, top_k, language)
+    def search_by_text(self, user_id, query, top_k, language, document_ids=None):
+        self.recorded["lexical"] = (user_id, query, top_k, language, document_ids)
         return [self._chunk(score=3.0)]
 
     @staticmethod
@@ -91,7 +91,7 @@ def test_vector_retrieval_embeds_query_and_returns_shaped_results(vector_service
 def test_vector_retrieval_passes_ownership_and_top_k(vector_service):
     vector_service.retrieve(user_id=42, query="q", top_k=7)
 
-    user_id, query_vector, top_k = vector_service.chunk_repository.recorded["vector"]
+    user_id, query_vector, top_k, *rest = vector_service.chunk_repository.recorded["vector"]
     assert user_id == 42
     assert top_k == 7
     assert len(query_vector) == settings.embedding_dimension
@@ -112,7 +112,7 @@ def test_lexical_retrieval_passes_language_and_ownership(retrieval_service):
         user_id=42, query="annual report", method=RetrievalMethod.LEXICAL, top_k=5
     )
 
-    user_id, query, top_k, language = (
+    user_id, query, top_k, language, *rest = (
         retrieval_service.lexical_retrieval_service.chunk_repository.recorded["lexical"]
     )
     assert user_id == 42
@@ -126,7 +126,7 @@ def test_default_top_k_used_when_not_provided(retrieval_service):
         user_id=42, query="finance", method=RetrievalMethod.VECTOR
     )
 
-    user_id, query_vector, top_k = (
+    user_id, query_vector, top_k, *rest = (
         retrieval_service.vector_retrieval_service.chunk_repository.recorded["vector"]
     )
     assert top_k == settings.retrieval_default_top_k
@@ -142,7 +142,7 @@ def test_top_k_is_clamped_to_maximum(retrieval_service):
         top_k=settings.retrieval_max_top_k + 100,
     )
 
-    user_id, query_vector, top_k = (
+    user_id, query_vector, top_k, *rest = (
         retrieval_service.vector_retrieval_service.chunk_repository.recorded["vector"]
     )
     assert top_k == settings.retrieval_max_top_k
@@ -160,8 +160,8 @@ def test_hybrid_dispatches_to_rrf_service():
         def __init__(self):
             self.calls = []
 
-        def search(self, user_id, query, top_k):
-            self.calls.append((user_id, query, top_k))
+        def search(self, user_id, query, top_k, document_ids=None):
+            self.calls.append((user_id, query, top_k, document_ids))
             return [
                 ChunkResult(
                     chunk_id=1,
@@ -189,7 +189,7 @@ def test_hybrid_dispatches_to_rrf_service():
         user_id=42, query="annual report", method=RetrievalMethod.HYBRID, top_k=7
     )
 
-    assert fake_rrf.calls == [(42, "annual report", 7)]
+    assert fake_rrf.calls == [(42, "annual report", 7, None)]
     assert len(response.results) == 1
     assert response.results[0].score == pytest.approx(0.5)
 
@@ -220,7 +220,7 @@ def test_rerank_true_pipes_through_reranking_service():
         def __init__(self):
             self.requested = []
 
-        def search(self, user_id, query, top_k):
+        def search(self, user_id, query, top_k, document_ids=None):
             self.requested.append(top_k)
             return [
                 ChunkResult(
