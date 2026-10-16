@@ -60,7 +60,12 @@ async def rate_limiting_middleware(request: Request, call_next):
                 "status_code": 429,
                 "message": f"Too many requests. Please wait {retry_after} seconds before retrying.",
             },
-            headers={"Retry-After": str(retry_after)},
+            headers={
+                "Retry-After": str(retry_after),
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "*",
+            },
         )
     return await call_next(request)
 

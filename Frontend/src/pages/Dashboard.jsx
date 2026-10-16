@@ -2147,10 +2147,21 @@ export default function Dashboard({ onLogout, initialPlan = "free" }) {
   const hasProcessingFiles = files.some(
     (f) => f.status === "processing" || f.status === "uploaded"
   );
+  const pollingAttemptsRef = useRef(0);
 
   useEffect(() => {
-    if (!hasProcessingFiles) return;
+    if (!hasProcessingFiles) {
+      pollingAttemptsRef.current = 0;
+      return;
+    }
+    // Stop polling after ~2 minutes (40 attempts × 3s) to avoid hammering
+    // the backend and triggering rate limits when a document is stuck.
+    if (pollingAttemptsRef.current >= 40) {
+      pollingAttemptsRef.current = 0;
+      return;
+    }
     const interval = setInterval(() => {
+      pollingAttemptsRef.current += 1;
       refreshFiles();
       refreshUsage();
     }, 3000);
