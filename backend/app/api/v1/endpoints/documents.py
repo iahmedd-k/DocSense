@@ -1,7 +1,7 @@
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -41,11 +41,10 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
 @router.post(
     "",
     response_model=ApiResponse[DocumentResponse],
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_201_CREATED,
     summary="Upload a document (PDF, CSV, Excel, PPTX, DOCX)",
 )
 def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     document_service: DocumentService = Depends(get_document_service),
@@ -75,23 +74,11 @@ def upload_document(
         file_size=file_size,
         public_id=f"docsense/users/{current_user.id}/{file_id}",
     )
-
-    # Process (parse, chunk, embed) in the background so the HTTP response
-    # returns immediately instead of holding the request open for the whole
-    # pipeline. Previously this ran synchronously inside the handler, so a
-    # slow/hanging parse or embedding call left the request (and the
-    # PROCESSING document row) stuck forever, which made the frontend poll
-    # status endpoints endlessly on Render.
-    background_tasks.add_task(
-        document_service.process_document_background,
-        document.id,
-        str(temp_path),
-    )
-
+    document = document_service._process(temp_path, document)
     return ApiResponse(
         success=True,
         data=document,
-        message="Document uploaded and is being processed in the background.",
+        message="Document uploaded and processed.",
     )
 
 

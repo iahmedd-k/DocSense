@@ -104,14 +104,14 @@ def test_upload_success(client, monkeypatch):
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert resp.status_code == 202
+    assert resp.status_code == 201
     body = resp.json()
     assert body["success"] is True
     data = body["data"]
     assert data["original_filename"] == "resume.pdf"
     assert data["mime_type"] == "application/pdf"
     assert data["file_size"] == len(VALID_PDF)
-    assert data["status"] == "processing"
+    assert data["status"] == "completed"
     assert data["storage_key"].startswith("docsense/users/")
     assert data["storage_url"].startswith("https://res.cloudinary.com/")
     assert isinstance(data["user_id"], int) and data["user_id"] > 0
@@ -328,18 +328,10 @@ def test_upload_corrupt_pdf_marks_failed(client, monkeypatch):
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert resp.status_code == 202
+    assert resp.status_code == 201
     data = resp.json()["data"]
-    assert data["status"] == "processing"
+    assert data["status"] == "failed"
     assert data["storage_url"].startswith("https://res.cloudinary.com/")
-
-    # Background processing marks the document failed; confirm in the DB.
-    db = TestingSessionLocal()
-    try:
-        doc = DocumentRepository(db).get_by_id(data["id"])
-        assert doc.status == DocumentStatus.FAILED
-    finally:
-        db.close()
 
     temp_path = (
         Path(settings.local_temp_dir)
@@ -379,7 +371,7 @@ def test_upload_persists_chunks_with_embeddings(client, monkeypatch):
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
     ).json()["data"]
-    assert data["status"] == "processing"
+    assert data["status"] == "completed"
 
     db = TestingSessionLocal()
     try:
@@ -421,12 +413,9 @@ def test_embedding_failure_marks_document_failed(client, monkeypatch):
         headers={"Authorization": f"Bearer {token}"},
     ).json()["data"]
 
-    assert data["status"] == "processing"
-    # Background processing marks the document failed; confirm in the DB.
+    assert data["status"] == "failed"
     db = TestingSessionLocal()
     try:
-        doc = DocumentRepository(db).get_by_id(data["id"])
-        assert doc.status == DocumentStatus.FAILED
         assert DocumentChunkRepository(db).count_by_document(data["id"]) == 0
     finally:
         db.close()

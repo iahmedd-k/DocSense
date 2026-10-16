@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-import app.db.session as db_session_module
+from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
@@ -29,12 +29,8 @@ def override_get_db():
 
 
 @pytest.fixture(autouse=True)
-def _background_session_for_tests(monkeypatch):
-    # Background tasks opened by `process_document_background` use
-    # `app.db.session.SessionLocal`, which points at the production database.
-    # Point it at the test SQLite so background processing can see documents
-    # committed during the request.
-    monkeypatch.setattr(db_session_module, "SessionLocal", TestingSessionLocal)
+def _temp_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "local_temp_dir", str(tmp_path / "tmp"))
 
 
 @pytest.fixture()
