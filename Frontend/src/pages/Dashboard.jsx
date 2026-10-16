@@ -361,32 +361,32 @@ function TopBar({ route, onRouteChange, plan, onOpenUsage, onLogout, files, onTa
       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
         <BrandLogo size={28} showText={false} />
         <div className="hidden sm:block h-4 w-px bg-stone-200" />
-      </div>
 
-      <div className="relative flex items-center gap-1 shrink-0">
-        {indicator && (
-          <div
-            className="absolute top-0 bottom-0 bg-stone-100 rounded-lg border border-stone-200 transition-all duration-200 ease-out pointer-events-none"
-            style={{ left: indicator.left, width: indicator.width }}
-          />
-        )}
-        {NAV.map((item) => {
-          const Icon = item.icon;
-          const active = route === item.id;
-          return (
-            <button
-              key={item.id}
-              ref={(el) => (btnRefs.current[item.id] = el)}
-              onClick={() => onRouteChange(item.id)}
-              className={`relative z-10 flex items-center gap-1.5 text-[12px] sm:text-[12.5px] font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
-                active ? "text-stone-900" : "text-stone-500 hover:text-stone-700"
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+        <div className="relative flex items-center gap-1 shrink-0">
+          {indicator && (
+            <div
+              className="absolute top-0 bottom-0 bg-stone-100 rounded-lg border border-stone-200 transition-all duration-200 ease-out pointer-events-none"
+              style={{ left: indicator.left, width: indicator.width }}
+            />
+          )}
+          {NAV.map((item) => {
+            const Icon = item.icon;
+            const active = route === item.id;
+            return (
+              <button
+                key={item.id}
+                ref={(el) => (btnRefs.current[item.id] = el)}
+                onClick={() => onRouteChange(item.id)}
+                className={`relative z-10 flex items-center gap-1.5 text-[12px] sm:text-[12.5px] font-medium px-2.5 sm:px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                  active ? "text-stone-900" : "text-stone-500 hover:text-stone-700"
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="hidden md:flex flex-1 justify-center min-w-0 max-w-sm">
@@ -870,22 +870,28 @@ function ChatInboxDashboard({
 
   useEffect(() => {
     let isSubscribed = true;
+    const safetyTimer = setTimeout(() => {
+      if (isSubscribed) setLoadingConversations(false);
+    }, 3000);
+
     listConversations(0, 50)
       .then((res) => {
         if (!isSubscribed) return;
         const convs = res.conversations || [];
         setConversations(convs);
         if (convs.length > 0) {
-          setActiveId(convs[0].id);
+          setActiveId((prev) => prev || convs[0].id);
         }
       })
       .catch(() => {})
       .finally(() => {
         if (isSubscribed) setLoadingConversations(false);
+        clearTimeout(safetyTimer);
       });
 
     return () => {
       isSubscribed = false;
+      clearTimeout(safetyTimer);
     };
   }, []);
 
@@ -1781,19 +1787,33 @@ function RagFileManager({
       if (pollingRef.current[docId]) return;
       pollingRef.current[docId] = true;
 
+      let attempts = 0;
+      const MAX_ATTEMPTS = 40;
+
       const poll = async () => {
         try {
+          attempts++;
           const status = await getDocumentStatus(docId);
           const mappedStatus = status.status === "completed" ? "indexed" : status.status;
           setFiles((prev) =>
             prev.map((f) => (f.id === docId ? { ...f, status: mappedStatus, error: status.error_message } : f))
           );
-          if (mappedStatus === "processing" || mappedStatus === "uploaded") {
+          if ((mappedStatus === "processing" || mappedStatus === "uploaded") && attempts < MAX_ATTEMPTS) {
             setTimeout(poll, 1500);
           } else {
+            const isTerminal = mappedStatus !== "processing" && mappedStatus !== "uploaded";
+            if (attempts >= MAX_ATTEMPTS && (mappedStatus === "processing" || mappedStatus === "uploaded")) {
+              setFiles((prev) =>
+                prev.map((f) => (f.id === docId ? { ...f, status: "failed", error: "Processing timed out" } : f))
+              );
+            }
             delete pollingRef.current[docId];
             if (refreshUsage) refreshUsage();
-            if (refreshFiles) refreshFiles();
+            // Only refresh files when a terminal status was reached. If we timed
+            // out while the backend still reports processing/uploaded, calling
+            // refreshFiles() re-fetches the stuck PROCESSING row and restarts
+            // the poll loop endlessly (the "get documents" spam on Render).
+            if (refreshFiles && isTerminal) refreshFiles();
           }
         } catch {
           delete pollingRef.current[docId];
@@ -1833,15 +1853,15 @@ function RagFileManager({
         for (const file of validFiles) {
           const doc = await uploadDocument(file);
           const mapped = mapDocumentToFrontend(doc);
-          mapped.status = "processing";
           mapped.progress = 0;
-          setFiles((prev) => [mapped, ...prev]);
+          setFiles((prev) => [mapped, ...prev.filter((f) => f.id !== doc.id)]);
           pollDocumentStatus(doc.id);
         }
         if (refreshUsage) refreshUsage();
         if (refreshFiles) refreshFiles();
       } catch (err) {
         console.error("Upload failed:", err);
+        alert(err?.message || "Upload failed. Please check the backend server.");
       } finally {
         setUploading(false);
       }
@@ -1887,7 +1907,10 @@ function RagFileManager({
   const confirmDelete = async () => {
     const ids = Array.isArray(deleteTarget) ? deleteTarget.map((f) => f.id) : [deleteTarget.id];
     try {
-      await Promise.all(ids.map((id) => deleteDocument(id)));
+      await Promise.allSettled(ids.map((id) => deleteDocument(id)));
+    } catch (err) {
+      console.error("Delete failed:", err);
+    } finally {
       setFiles((prev) => prev.filter((f) => !ids.includes(f.id)));
       setSelectedIds((prev) => {
         const next = new Set(prev);
@@ -1896,10 +1919,8 @@ function RagFileManager({
       });
       if (refreshUsage) refreshUsage();
       if (refreshFiles) refreshFiles();
-    } catch (err) {
-      console.error("Delete failed:", err);
+      setDeleteTarget(null);
     }
-    setDeleteTarget(null);
   };
 
   const filtered = files.filter((f) => {
@@ -2122,6 +2143,19 @@ export default function Dashboard({ onLogout, initialPlan = "free" }) {
     refreshFiles();
     refreshUsage();
   }, [refreshFiles, refreshUsage]);
+
+  const hasProcessingFiles = files.some(
+    (f) => f.status === "processing" || f.status === "uploaded"
+  );
+
+  useEffect(() => {
+    if (!hasProcessingFiles) return;
+    const interval = setInterval(() => {
+      refreshFiles();
+      refreshUsage();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [hasProcessingFiles, refreshFiles, refreshUsage]);
 
   const goToRoute = (id) => {
     if (id === "sources") setSourcesView("sources");
