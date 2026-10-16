@@ -306,7 +306,7 @@ class DocumentService:
 
         Retries fetching the document a few times in case the write hasn't
         become visible to a fresh session yet (e.g. read-replica lag), then
-        gives up and logs the failure so the frontend can surface it.
+        gives up and marks the document FAILED so the frontend can surface it.
         """
         from app.db.session import SessionLocal
         import time
@@ -341,6 +341,21 @@ class DocumentService:
             self._process(temp_path, document)
         except Exception:
             logger.exception("Error in background document processing for %d", document_id)
+            # Always mark the document failed so the frontend stops polling
+            # and the user can retry instead of waiting forever.
+            try:
+                doc_repo = DocumentRepository(db)
+                document = doc_repo.get_by_id(document_id)
+                if document and document.status in (
+                    DocumentStatus.PROCESSING,
+                    DocumentStatus.UPLOADED,
+                ):
+                    doc_repo.update_status(document, DocumentStatus.FAILED)
+            except Exception:
+                logger.exception(
+                    "Failed to mark document %d as FAILED after background error",
+                    document_id,
+                )
         finally:
             db.close()
 
@@ -406,7 +421,7 @@ class DocumentService:
     ) -> DocumentStatusResponse:
         document = self.get_document(user_id, document_id)
         if document.status in (DocumentStatus.PROCESSING, DocumentStatus.UPLOADED):
-            if self._document_age_seconds(document.created_at) > 300:
+            if self._document_age_seconds(document.created_at) > 120:
                 document = self.document_repository.update_status(document, DocumentStatus.FAILED)
 
         return DocumentStatusResponse(
@@ -418,7 +433,7 @@ class DocumentService:
         docs = self.document_repository.list_by_user(user_id)
         for doc in docs:
             if doc.status in (DocumentStatus.PROCESSING, DocumentStatus.UPLOADED):
-                if self._document_age_seconds(doc.created_at) > 300:
+                if self._document_age_seconds(doc.created_at) > 120:
                     self.document_repository.update_status(doc, DocumentStatus.FAILED)
         return docs
 

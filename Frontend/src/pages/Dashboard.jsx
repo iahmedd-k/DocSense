@@ -2144,18 +2144,40 @@ export default function Dashboard({ onLogout, initialPlan = "free" }) {
     refreshUsage();
   }, [refreshFiles, refreshUsage]);
 
+  const processingStartRef = useRef({});
+
+  useEffect(() => {
+    // Track when each file first entered processing state.
+    files.forEach((f) => {
+      if ((f.status === "processing" || f.status === "uploaded") && !processingStartRef.current[f.id]) {
+        processingStartRef.current[f.id] = Date.now();
+      }
+    });
+    // Clear timestamps for files no longer processing.
+    for (const id of Object.keys(processingStartRef.current)) {
+      if (!files.some((f) => f.id === Number(id) && (f.status === "processing" || f.status === "uploaded"))) {
+        delete processingStartRef.current[id];
+      }
+    }
+  }, [files]);
+
+  const hasStuckProcessingFiles = files.some(
+    (f) =>
+      (f.status === "processing" || f.status === "uploaded") &&
+      Date.now() - (processingStartRef.current[f.id] || 0) > 120000
+  );
   const hasProcessingFiles = files.some(
     (f) => f.status === "processing" || f.status === "uploaded"
   );
 
   useEffect(() => {
-    if (!hasProcessingFiles) return;
+    if (!hasProcessingFiles || hasStuckProcessingFiles) return;
     const interval = setInterval(() => {
       refreshFiles();
       refreshUsage();
     }, 3000);
     return () => clearInterval(interval);
-  }, [hasProcessingFiles, refreshFiles, refreshUsage]);
+  }, [hasProcessingFiles, hasStuckProcessingFiles, refreshFiles, refreshUsage]);
 
   const goToRoute = (id) => {
     if (id === "sources") setSourcesView("sources");
