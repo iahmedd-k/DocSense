@@ -32,10 +32,10 @@ class StorageService:
 
     def _supabase_headers(self) -> dict[str, str]:
         key = settings.supabase_secret_key or settings.supabase_publishable_key
-        return {
-            "apikey": key,
-            "Authorization": f"Bearer {key}",
-        }
+        headers = {"apikey": key}
+        if not key.startswith(("sb_publishable_", "sb_secret_")):
+            headers["Authorization"] = f"Bearer {key}"
+        return headers
 
     def _upload_supabase(
         self,
@@ -100,29 +100,43 @@ class StorageService:
         user_id: int,
         public_id: str | None = None,
     ) -> tuple[str, str]:
-        """Upload any file to configured storage provider (Supabase Storage or Cloudinary)."""
+        """Upload any file to the first available storage provider (Supabase Storage or Cloudinary).
 
-        # 1. Prefer Supabase Storage if credentials are configured
-        if settings.supabase_url and settings.supabase_secret_key:
-            return self._upload_supabase(file_bytes, filename, user_id, public_id)
+        Tries Supabase Storage first when credentials are configured. If Supabase
+        fails, falls back to Cloudinary. Returns the (storage_key, public_url) from
+        whichever provider succeeds. Raises StorageError only if every configured
+        provider fails (or none is configured).
+        """
+        errors: list[str] = []
+
+        # 1. Try Supabase Storage if credentials are configured
+        if settings.supabase_url and (
+            settings.supabase_secret_key or settings.supabase_publishable_key
+        ):
+            try:
+                return self._upload_supabase(file_bytes, filename, user_id, public_id)
+            except StorageError as exc:
+                errors.append(f"Supabase Storage: {exc}")
 
         # 2. Fallback to Cloudinary if configured
         if settings.cloudinary_cloud_name:
             _ensure_cloudinary_config()
-            public_id = public_id or f"docsense/users/{user_id}/{uuid4().hex}"
+            cloudinary_public_id = public_id or f"docsense/users/{user_id}/{uuid4().hex}"
             try:
                 result = uploader.upload(
                     io.BytesIO(file_bytes),
-                    public_id=public_id,
+                    public_id=cloudinary_public_id,
                     resource_type="raw",
                 )
             except Exception as exc:
-                raise StorageError(
-                    f"Failed to upload file '{filename}' to Cloudinary"
-                ) from exc
+                errors.append(f"Cloudinary: {exc}")
+            else:
+                return result["public_id"], result["secure_url"]
 
-            return result["public_id"], result["secure_url"]
-
+        if errors:
+            raise StorageError(
+                f"All storage providers failed: {'; '.join(errors)}"
+            )
         raise StorageError("No storage provider configured (Supabase Storage or Cloudinary required).")
 
     def upload_pdf(
@@ -136,19 +150,33 @@ class StorageService:
         return self.upload_file(file_bytes, filename, user_id, public_id)
 
     def delete_file(self, public_id: str) -> None:
-        """Delete a file from the configured storage provider."""
+        """Delete a file from whichever storage provider holds it.
 
-        if settings.supabase_url and settings.supabase_secret_key:
-            return self._delete_supabase(public_id)
+        Tries Supabase Storage first when configured, then Cloudinary. A provider
+        that reports the object as missing is skipped; StorageError is raised only
+        if every configured provider fails (or none is configured).
+        """
+        errors: list[str] = []
+
+        if settings.supabase_url and (
+            settings.supabase_secret_key or settings.supabase_publishable_key
+        ):
+            try:
+                self._delete_supabase(public_id)
+                return
+            except StorageError as exc:
+                errors.append(f"Supabase Storage: {exc}")
 
         if settings.cloudinary_cloud_name:
             _ensure_cloudinary_config()
             try:
                 uploader.destroy(public_id, resource_type="raw")
+                return
             except Exception as exc:
-                raise StorageError(
-                    f"Failed to delete file '{public_id}' from Cloudinary"
-                ) from exc
-            return
+                errors.append(f"Cloudinary: {exc}")
 
+        if errors:
+            raise StorageError(
+                f"All storage providers failed to delete: {'; '.join(errors)}"
+            )
         raise StorageError("No storage provider configured.")
