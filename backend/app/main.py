@@ -84,8 +84,7 @@ async def log_request_time(request: Request, call_next):
 # ── Outermost CORS Setup for Allowed Frontend Origins & Vercel Domains ────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins if isinstance(settings.cors_origins, list) else [settings.cors_origins],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|.*\.vercel\.app|.*\.onrender\.com)(:\d+)?$",
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)?(vercel\.app|onrender\.com|localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
