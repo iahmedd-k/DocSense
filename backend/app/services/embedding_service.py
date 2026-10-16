@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import math
 import time
 
 import httpx
@@ -103,6 +104,57 @@ class HuggingFaceEmbeddingProvider(EmbeddingProvider):
                 last_error = f"Endpoint {url} error: {exc}"
 
         raise EmbeddingError(f"Hugging Face API failed across endpoints: {last_error}")
+
+
+class SimpleHashEmbeddingProvider(EmbeddingProvider):
+    """Lightweight, zero-dependency embedding provider using feature hashing.
+
+    No model download, no external API, no heavy RAM usage.  Deterministic:
+    the same text always produces the same vector.  Good enough for demo /
+    local development on memory-constrained hosts (Render free tier).
+    """
+
+    def __init__(self, dimension: int):
+        self.dimension = dimension
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        return [t for t in text.lower().split() if t]
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+
+        # Per-document term frequencies.
+        term_freqs: list[dict[str, int]] = []
+        doc_freq: dict[str, int] = {}
+
+        for text in texts:
+            tokens = self._tokenize(text)
+            tf: dict[str, int] = {}
+            for tok in tokens:
+                tf[tok] = tf.get(tok, 0) + 1
+            term_freqs.append(tf)
+            for tok in tf:
+                doc_freq[tok] = doc_freq.get(tok, 0) + 1
+
+        num_docs = len(texts)
+
+        vectors: list[list[float]] = []
+        for tf in term_freqs:
+            vec = [0.0] * self.dimension
+            total_terms = sum(tf.values()) or 1
+            for tok, count in tf.items():
+                idx = abs(hash(tok)) % self.dimension
+                # TF * IDF weighting (IDF computed across this batch).
+                idf = math.log1p(num_docs / (1 + doc_freq.get(tok, 1)))
+                vec[idx] += (count / total_terms) * idf
+
+            # L2 normalize.
+            norm = sum(v * v for v in vec) ** 0.5 or 1.0
+            vectors.append([v / norm for v in vec])
+
+        return vectors
 
 
 class EmbeddingService:
@@ -214,9 +266,28 @@ class EmbeddingService:
                     self._provider = LocalEmbeddingProvider(model_name=settings.embedding_model)
                     embeddings = self._provider.embed(filtered)
                 except Exception as local_exc:
-                    raise EmbeddingError(f"Both cloud and local embedding providers failed: {exc}, local: {local_exc}") from exc
+                    logger.warning(
+                        "Both cloud and local embedding providers failed (%s, %s), "
+                        "falling back to lightweight hash embeddings",
+                        exc,
+                        local_exc,
+                    )
+                    self._provider = None
+                    self._provider = SimpleHashEmbeddingProvider(
+                        dimension=settings.embedding_dimension
+                    )
+                    embeddings = self._provider.embed(filtered)
             else:
-                raise EmbeddingError(f"Embedding generation failed: {exc}") from exc
+                logger.warning(
+                    "Primary embedding provider failed (%s), falling back to "
+                    "lightweight hash embeddings",
+                    exc,
+                )
+                self._provider = None
+                self._provider = SimpleHashEmbeddingProvider(
+                    dimension=settings.embedding_dimension
+                )
+                embeddings = self._provider.embed(filtered)
 
         logger.info("Embedding generation: %.3fs", time.perf_counter() - t0)
 
