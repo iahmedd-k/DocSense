@@ -83,13 +83,7 @@ class DocumentService:
             raise BadRequestError(f"Unsupported file type: {ext}. Allowed: {allowed}")
 
         if content_type and content_type not in ALLOWED_MIME_TYPES:
-            # Some browsers send generic MIME types; only reject if clearly wrong
-            if content_type not in (None, "application/octet-stream", "binary/octet-stream"):
-                logger.warning(
-                    "File MIME type %s does not match extension %s, proceeding anyway",
-                    content_type,
-                    ext,
-                )
+            raise BadRequestError(f"Unsupported content type: {content_type}")
 
         return ext
 
@@ -274,16 +268,37 @@ class DocumentService:
         return document, temp_path
 
     def process_document_background(self, document_id: int, temp_path_str: str) -> None:
-        """Process document in background with its own DB session."""
+        """Process document in background with its own DB session.
+
+        Retries fetching the document a few times in case the write hasn't
+        become visible to a fresh session yet (e.g. read-replica lag), then
+        gives up and logs the failure so the frontend can surface it.
+        """
         from app.db.session import SessionLocal
+        import time
 
         db = SessionLocal()
         try:
             doc_repo = DocumentRepository(db)
             chunk_repo = DocumentChunkRepository(db)
-            document = doc_repo.get_by_id(document_id)
+
+            document = None
+            for attempt in range(5):
+                document = doc_repo.get_by_id(document_id)
+                if document:
+                    break
+                logger.warning(
+                    "Background processing: document %d not found (attempt %d/5), retrying",
+                    document_id,
+                    attempt + 1,
+                )
+                time.sleep(0.5 * (attempt + 1))
+
             if not document:
-                logger.error("Background processing: document %d not found", document_id)
+                logger.error(
+                    "Background processing: document %d not found after 5 attempts — aborting",
+                    document_id,
+                )
                 return
 
             self.document_repository = doc_repo
