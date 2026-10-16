@@ -9,7 +9,7 @@ from app.api import api_router
 from app.api.v1.endpoints import health
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
-from app.core.logging import setup_logging
+from app.core.logging import get_memory_rss_mb, setup_logging
 from app.core.rate_limit import get_client_identifier, limiter
 
 logger = setup_logging()
@@ -17,7 +17,8 @@ logger = setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("%s v%s started", settings.project_name, settings.app_version)
+    rss_mb = get_memory_rss_mb()
+    logger.info("%s v%s started (memory: %.1f MB RSS)", settings.project_name, settings.app_version, rss_mb)
 
     if settings.supabase_url and settings.supabase_secret_key:
         logger.info("Supabase Storage configured (bucket: %s)", settings.supabase_bucket)
@@ -27,7 +28,8 @@ async def lifespan(app: FastAPI):
         logger.warning("No remote object storage configured — uploads will run in local fallback mode")
 
     yield
-    logger.info("%s shutting down", settings.project_name)
+    rss_mb = get_memory_rss_mb()
+    logger.info("%s shutting down (memory: %.1f MB RSS)", settings.project_name, rss_mb)
 
 
 app = FastAPI(

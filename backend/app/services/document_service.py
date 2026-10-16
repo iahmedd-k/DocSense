@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from app.core.config import settings
 from app.core.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
-from app.core.logging import setup_logging
+from app.core.logging import get_memory_rss_mb, setup_logging
 from app.models.document import Document, DocumentStatus
 from app.repositories.document_chunk_repository import DocumentChunkRepository
 from app.repositories.document_repository import DocumentRepository
@@ -132,10 +132,16 @@ class DocumentService:
         else:
             raise BadRequestError(f"No parser available for file type: {ext}")
 
+    EMBEDDING_BATCH_SIZE = 16
+
     def _generate_and_persist_chunks(
         self, parsed: "ParsedPdf", document: Document
     ) -> None:
-        """Chunk the parsed document, generate embeddings, and persist to PostgreSQL."""
+        """Chunk the parsed document, generate embeddings in batches, and persist to PostgreSQL.
+
+        Embeddings are generated and persisted in bounded batches so the full
+        embedding matrix is never held in memory at once.
+        """
         chunks = self.chunking_service.chunk_document(parsed, document.id)
 
         if not chunks:
@@ -154,31 +160,45 @@ class DocumentService:
                 )
             ]
 
+        # Filter out empty/whitespace-only chunks before embedding
+        chunks = [c for c in chunks if c.content.strip()]
+
+        if not chunks:
+            logger.warning("Document %s produced no embeddable chunks", document.id)
+            return
+
         texts = [c.content for c in chunks]
-        embeddings = self.embedding_service.generate_embeddings(texts)
 
-        # Keep only chunks whose texts survived the embedding guard
-        filtered_texts = [t for t in texts if t.strip()]
-        text_set = set(filtered_texts)
-        chunks = [c for c in chunks if c.content.strip() in text_set]
+        for start in range(0, len(texts), self.EMBEDDING_BATCH_SIZE):
+            batch_chunks = chunks[start:start + self.EMBEDDING_BATCH_SIZE]
+            batch_texts = texts[start:start + self.EMBEDDING_BATCH_SIZE]
 
-        chunk_records = []
-        for chunk, embedding in zip(chunks, embeddings):
-            chunk_records.append({
-                "document_id": chunk.document_id,
-                "user_id": document.user_id,
-                "page_number": chunk.page_number,
-                "page_numbers": chunk.page_numbers,
-                "content": chunk.content,
-                "content_type": chunk.content_type,
-                "metadata": chunk.metadata,
-                "embedding": embedding,
-            })
+            embeddings = self.embedding_service.generate_embeddings(batch_texts)
 
-        self.document_chunk_repository.create_many(chunk_records)
+            batch_records = []
+            for chunk, embedding in zip(batch_chunks, embeddings):
+                batch_records.append({
+                    "document_id": chunk.document_id,
+                    "user_id": document.user_id,
+                    "page_number": chunk.page_number,
+                    "page_numbers": chunk.page_numbers,
+                    "content": chunk.content,
+                    "content_type": chunk.content_type,
+                    "metadata": chunk.metadata,
+                    "embedding": embedding,
+                })
+
+            self.document_chunk_repository.create_many(batch_records)
+
+            # Release batch references to free memory
+            del batch_chunks
+            del batch_texts
+            del embeddings
+            del batch_records
+
         logger.info(
             "Persisted %d chunks with embeddings for document %s",
-            len(chunk_records),
+            len(chunks),
             document.id,
         )
 
@@ -213,7 +233,14 @@ class DocumentService:
 
         document = self.document_repository.update_status(document, DocumentStatus.COMPLETED)
         self._delete_temp_file(file_path)
-        logger.info("Document %s processed (%d pages, type=%s)", document.id, parsed.total_pages, ext)
+        rss_mb = get_memory_rss_mb()
+        logger.info(
+            "Document %s processed (%d pages, type=%s, memory: %.1f MB RSS)",
+            document.id,
+            parsed.total_pages,
+            ext,
+            rss_mb,
+        )
 
         return document
 
@@ -222,32 +249,39 @@ class DocumentService:
         user_id: int,
         filename: str,
         content_type: str | None,
-        file_bytes: bytes,
+        file_path: Path,
+        file_size: int,
+        public_id: str | None = None,
     ) -> tuple[Document, Path]:
-        """Save file, upload to storage, create document record with PROCESSING status, and return (document, temp_path)."""
+        """Save file metadata, upload to storage, create document record with PROCESSING status.
+
+        The file is already staged at ``file_path`` (streamed there by the caller),
+        so no full file payload is held in RAM.
+        """
         filename = os.path.basename(filename)
         ext = self._validate_file(filename, content_type)
 
-        if not file_bytes:
+        if not file_path.is_file() or file_size == 0:
             raise BadRequestError("File is empty")
 
         max_size = self._max_file_size_bytes()
-        if len(file_bytes) > max_size:
+        if file_size > max_size:
             raise BadRequestError(
                 f"File exceeds the maximum size of {settings.max_file_size_mb} MB"
             )
 
-        temp_path, public_id = self._save_temp_file(file_bytes, user_id, ext)
+        if public_id is None:
+            public_id = f"docsense/users/{user_id}/{uuid4().hex}"
 
         try:
-            storage_key, storage_url = self.storage_service.upload_file(
-                file_bytes,
+            storage_key, storage_url = self.storage_service.upload_file_from_path(
+                file_path,
                 filename,
                 user_id,
                 public_id=public_id,
             )
         except StorageError as exc:
-            self._delete_temp_file(temp_path)
+            self._delete_temp_file(file_path)
             raise ServiceUnavailableError(
                 f"File storage is temporarily unavailable: {exc}"
             ) from exc
@@ -261,11 +295,11 @@ class DocumentService:
             storage_key=storage_key,
             storage_url=storage_url,
             mime_type=mime_type,
-            file_size=len(file_bytes),
+            file_size=file_size,
             status=DocumentStatus.PROCESSING,
         )
 
-        return document, temp_path
+        return document, file_path
 
     def process_document_background(self, document_id: int, temp_path_str: str) -> None:
         """Process document in background with its own DB session.
@@ -317,11 +351,20 @@ class DocumentService:
         content_type: str | None,
         file_bytes: bytes,
     ) -> Document:
+        temp_dir = self._temp_dir_for_user(user_id)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        file_id = uuid4().hex
+        ext = Path(filename).suffix.lower()
+        temp_path = temp_dir / f"{file_id}{ext}"
+        temp_path.write_bytes(file_bytes)
+        file_size = temp_path.stat().st_size
+
         document, temp_path = self.upload_async(
             user_id=user_id,
             filename=filename,
             content_type=content_type,
-            file_bytes=file_bytes,
+            file_path=temp_path,
+            file_size=file_size,
         )
         return self._process(temp_path, document)
 

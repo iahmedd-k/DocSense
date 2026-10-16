@@ -2,6 +2,8 @@ import logging
 import os
 from dataclasses import dataclass, field
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -172,7 +174,10 @@ class PdfParserService:
     ) -> list[PdfPage]:
         """Apply OCR fallback and multi-column reordering to parsed pages."""
         processed: list[PdfPage] = []
-        ocr_available = self._check_ocr_available()
+        ocr_available = self._check_ocr_available() and settings.ocr_enabled
+
+        if not settings.ocr_enabled:
+            logger.info("OCR is disabled via OCR_ENABLED=False; skipping OCR fallback")
 
         for page in pages:
             text = page.extracted_text
@@ -212,7 +217,11 @@ class PdfParserService:
             return False
 
     def _ocr_page(self, file_path: str, page_number: int) -> str:
-        """Extract text from a single page using OCR."""
+        """Extract text from a single page using OCR.
+
+        Renders one page at a time at reduced DPI and explicitly releases
+        the image object to bound memory usage on constrained instances.
+        """
         try:
             from pdf2image import convert_from_path
             import pytesseract
@@ -221,11 +230,14 @@ class PdfParserService:
                 file_path,
                 first_page=page_number,
                 last_page=page_number,
-                dpi=300,
+                dpi=settings.ocr_dpi,
             )
             if not images:
                 return ""
             text = pytesseract.image_to_string(images[0])
+            # Explicitly release the image object to free RAM promptly
+            images[0].close()
+            del images
             return text.strip() if text else ""
         except Exception as exc:
             logger.warning(

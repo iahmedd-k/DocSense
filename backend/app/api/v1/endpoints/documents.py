@@ -1,7 +1,11 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Response, UploadFile, status
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.db import get_db
 from app.models.user import User
 from app.repositories.document_chunk_repository import DocumentChunkRepository
@@ -41,27 +45,40 @@ def get_document_service(db: Session = Depends(get_db)) -> DocumentService:
     summary="Upload a document (PDF, CSV, Excel, PPTX, DOCX)",
 )
 def upload_document(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     document_service: DocumentService = Depends(get_document_service),
 ):
-    file_bytes = file.file.read()
+    # Stream the upload directly to a temp file on disk instead of reading
+    # the entire payload into RAM (file.file.read() holds multiple copies).
+    temp_dir = Path(settings.local_temp_dir) / f"user_{current_user.id}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    file_id = uuid4().hex
+    ext = Path(file.filename or "").suffix.lower()
+    temp_path = temp_dir / f"{file_id}{ext}"
+
+    with open(temp_path, "wb") as buffer:
+        while True:
+            chunk = file.file.read(1024 * 1024)  # 1 MB chunks
+            if not chunk:
+                break
+            buffer.write(chunk)
+
+    file_size = temp_path.stat().st_size
+
     document, temp_path = document_service.upload_async(
         user_id=current_user.id,
         filename=file.filename or "",
         content_type=file.content_type,
-        file_bytes=file_bytes,
+        file_path=temp_path,
+        file_size=file_size,
+        public_id=f"docsense/users/{current_user.id}/{file_id}",
     )
-    background_tasks.add_task(
-        document_service.process_document_background,
-        document.id,
-        str(temp_path),
-    )
+    document = document_service._process(temp_path, document)
     return ApiResponse(
         success=True,
         data=document,
-        message="Document uploaded successfully. Processing started in background.",
+        message="Document uploaded and processed.",
     )
 
 

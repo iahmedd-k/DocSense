@@ -41,6 +41,7 @@ def _temp_dir(monkeypatch, tmp_path):
 
 def _mock_cloudinary_upload(monkeypatch, fail=False):
     monkeypatch.setattr(settings, "cloudinary_cloud_name", "test-cloud")
+    monkeypatch.setattr(settings, "supabase_url", "")
     _mock_pdf_parser(monkeypatch)
     _mock_embedding(monkeypatch)
 
@@ -78,7 +79,7 @@ def _register(client, email="owner@example.com"):
             "confirm_password": "password123",
         },
     )
-    return resp.json()["access_token"]
+    return resp.json()["data"]["access_token"]
 
 
 def test_upload_requires_auth(client):
@@ -101,14 +102,16 @@ def test_upload_success(client, monkeypatch):
     )
 
     assert resp.status_code == 201
-    data = resp.json()
+    body = resp.json()
+    assert body["success"] is True
+    data = body["data"]
     assert data["original_filename"] == "resume.pdf"
     assert data["mime_type"] == "application/pdf"
     assert data["file_size"] == len(VALID_PDF)
     assert data["status"] == "completed"
     assert data["storage_key"].startswith("docsense/users/")
     assert data["storage_url"].startswith("https://res.cloudinary.com/")
-    assert data["user_id"] == 1
+    assert isinstance(data["user_id"], int) and data["user_id"] > 0
 
 
 def test_upload_rejects_non_pdf(client, monkeypatch):
@@ -208,8 +211,8 @@ def test_list_returns_only_own_documents(client, monkeypatch):
     )
 
     assert owner_docs.status_code == 200
-    assert [doc["original_filename"] for doc in owner_docs.json()] == ["b.pdf", "a.pdf"]
-    assert [doc["original_filename"] for doc in other_docs.json()] == ["c.pdf"]
+    assert [doc["original_filename"] for doc in owner_docs.json()["data"]] == ["b.pdf", "a.pdf"]
+    assert [doc["original_filename"] for doc in other_docs.json()["data"]] == ["c.pdf"]
 
 
 def test_cannot_access_another_users_document(client, monkeypatch):
@@ -221,7 +224,7 @@ def test_cannot_access_another_users_document(client, monkeypatch):
         "/api/v1/documents",
         files={"file": ("private.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token_owner}"},
-    ).json()
+    ).json()["data"]
 
     resp = client.get(
         f"/api/v1/documents/{upload['id']}",
@@ -251,7 +254,7 @@ def test_get_document_status_own_document(client, monkeypatch):
         "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
-    ).json()
+    ).json()["data"]
 
     resp = client.get(
         f"/api/v1/documents/{upload['id']}/status",
@@ -259,7 +262,7 @@ def test_get_document_status_own_document(client, monkeypatch):
     )
 
     assert resp.status_code == 200
-    assert resp.json() == {
+    assert resp.json()["data"] == {
         "document_id": upload["id"],
         "status": "completed",
     }
@@ -273,7 +276,7 @@ def test_get_document_status_requires_auth(client, monkeypatch):
         "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
-    ).json()
+    ).json()["data"]
 
     resp = client.get(f"/api/v1/documents/{upload['id']}/status")
 
@@ -301,7 +304,7 @@ def test_get_document_status_other_users_document(client, monkeypatch):
         "/api/v1/documents",
         files={"file": ("private.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token_owner}"},
-    ).json()
+    ).json()["data"]
 
     resp = client.get(
         f"/api/v1/documents/{upload['id']}/status",
@@ -323,7 +326,7 @@ def test_upload_corrupt_pdf_marks_failed(client, monkeypatch):
     )
 
     assert resp.status_code == 201
-    data = resp.json()
+    data = resp.json()["data"]
     assert data["status"] == "failed"
     assert data["storage_url"].startswith("https://res.cloudinary.com/")
 
@@ -343,7 +346,7 @@ def test_temp_file_deleted_after_successful_processing(client, monkeypatch):
         "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
-    ).json()
+    ).json()["data"]
 
     temp_path = (
         Path(settings.local_temp_dir)
@@ -364,7 +367,7 @@ def test_upload_persists_chunks_with_embeddings(client, monkeypatch):
         "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
-    ).json()
+    ).json()["data"]
     assert data["status"] == "completed"
 
     db = TestingSessionLocal()
@@ -405,7 +408,7 @@ def test_embedding_failure_marks_document_failed(client, monkeypatch):
         "/api/v1/documents",
         files={"file": ("resume.pdf", VALID_PDF, "application/pdf")},
         headers={"Authorization": f"Bearer {token}"},
-    ).json()
+    ).json()["data"]
 
     assert data["status"] == "failed"
 

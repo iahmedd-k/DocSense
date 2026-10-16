@@ -75,6 +75,10 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("supabase_url", "SUPABASE_URL"),
     )
+    supabase_publishable_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("supabase_publishable_key", "SUPABASE_PUBLISHABLE_KEY"),
+    )
     supabase_secret_key: str = Field(
         default="",
         validation_alias=AliasChoices("supabase_secret_key", "SUPABASE_SECRET_KEY", "supabase_service_role_key", "SUPABASE_SERVICE_ROLE_KEY"),
@@ -109,7 +113,7 @@ class Settings(BaseSettings):
     min_rerank_score: float = 0.1
 
     # Evidence Sufficiency Grading (FR-015) — adaptive per query intent
-    evidence_grading_top_k: int = 12  # default fallback
+    evidence_grading_top_k: int = 8  # default fallback
     evidence_grading_top_k_summarization: int = 25
     evidence_grading_top_k_qa: int = 10
     evidence_grading_top_k_comparison: int = 15
@@ -141,6 +145,16 @@ class Settings(BaseSettings):
     huggingface_inference_url: str = Field(
         default="https://router.huggingface.co/v1",
         validation_alias=AliasChoices("huggingface_inference_url", "HUGGINGFACE_INFERENCE_URL"),
+    )
+
+    # OCR (image-only PDFs). Disabled by default on memory-constrained instances.
+    ocr_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ocr_enabled", "OCR_ENABLED"),
+    )
+    ocr_dpi: int = Field(
+        default=200,
+        validation_alias=AliasChoices("ocr_dpi", "OCR_DPI"),
     )
 
     # Groq (LLM / query processing)

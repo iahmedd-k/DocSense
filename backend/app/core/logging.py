@@ -1,9 +1,36 @@
 import logging
 import sys
 
+try:
+    import psutil
+    _PSUTIL_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _PSUTIL_AVAILABLE = False
+
 from app.core.config import settings
 
 _configured = False
+
+
+def get_memory_rss_mb() -> float:
+    """Return current process resident set size in MB."""
+    if _PSUTIL_AVAILABLE:
+        try:
+            return psutil.Process().memory_info().rss / (1024 * 1024)
+        except Exception:
+            pass
+    # Fallback: parse /proc/self/status (Linux)
+    try:
+        with open("/proc/self/status", "r") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    # "VmRSS:   12345 kB"
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        return float(parts[1]) / 1024.0
+    except Exception:
+        pass
+    return 0.0
 
 
 def setup_logging() -> logging.Logger:
